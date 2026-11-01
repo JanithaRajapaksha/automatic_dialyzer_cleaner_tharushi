@@ -73,7 +73,7 @@ void systemMonitorTask(void* pvParameters) {
     }
 
     // Diagnostic logging
-    Serial.printf("[Monitor] System: %s | Free Heap: %u bytes | WiFi RSSI: %d dBm\n",
+    Serial.printf("[Monitor] System: %s | Free Heap: %lu bytes | WiFi RSSI: %d dBm\n",
                   SYSTEM_NAME,
                   ESP.getFreeHeap(),
                   WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);

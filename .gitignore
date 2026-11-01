@@ -1,17 +1,17 @@
-# Arduino / ESP32 build artifacts
-build/
+# PlatformIO build & environment files
+.pio
 .cache/
+build/
 *.bin
 *.elf
 *.hex
 
-# IDE & Editor files
-.vscode/
+# Visual Studio Code & IDEs
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-
-# OS generated files
 Thumbs.db

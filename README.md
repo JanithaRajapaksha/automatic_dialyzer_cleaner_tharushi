@@ -1,21 +1,25 @@
 # Automatic Dialyzer Cleaner - Embedded Control System
 
-Modular ESP32 firmware running FreeRTOS for a 10-channel Automated Dialyzer Cleaner controller.
+Modular ESP32 firmware running FreeRTOS for a 10-channel Automated Dialyzer Cleaner controller, built for **PlatformIO**.
 
 ---
 
-## 📁 Project Structure
+## 📁 PlatformIO Project Structure
 
 ```
-tharushi_fyp_1/
-├── tharushi_fyp_1.ino    # Main entry point & FreeRTOS task manager
-├── config.h              # Global configuration constants, pin maps & task settings
-├── config.cpp            # Wi-Fi credentials & channel label definitions
-├── relays.h              # Thread-safe relay control interface
-├── relays.cpp            # Relay driver with FreeRTOS mutex synchronization
-├── webpage.h             # Responsive web UI dashboard (stored in PROGMEM)
-├── web_server.h          # Web server controller interface
-└── web_server.cpp        # HTTP endpoint handlers & JSON API
+automatic_dialyzer_cleaner_tharushi/
+├── platformio.ini       # PlatformIO project configuration & environment
+├── include/             # Header files
+│   ├── config.h         # System constants, pin assignments & FreeRTOS settings
+│   ├── relays.h         # Thread-safe relay driver interface
+│   ├── web_server.h     # Web server controller interface
+│   └── webpage.h        # Web UI dashboard stored in PROGMEM
+├── src/                 # Implementation source files
+│   ├── main.cpp         # Main entry point & FreeRTOS task manager
+│   ├── config.cpp       # Wi-Fi credentials & channel definitions
+│   ├── relays.cpp       # Thread-safe relay implementation with FreeRTOS mutex
+│   └── web_server.cpp   # REST API endpoint handlers
+└── README.md
 ```
 
 ---
@@ -55,3 +59,17 @@ tharushi_fyp_1/
 - `GET /status` — Returns a JSON array of all 10 channel states.
 - `GET /info` — Returns system diagnostics (uptime, free heap, firmware version).
 
+---
+
+## 🚀 Building & Flashing (PlatformIO)
+
+```bash
+# Build firmware
+pio run
+
+# Upload to ESP32
+pio run --target upload
+
+# Open Serial Monitor (115200 baud)
+pio device monitor
+```

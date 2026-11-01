@@ -58,7 +58,7 @@ inline uint8_t getRelayPinLevel(int ch, bool state) {
 // ==========================================
 // FreeRTOS Configuration
 // ==========================================
-#define WEBSERVER_TASK_STACK_SIZE    4096
+#define WEBSERVER_TASK_STACK_SIZE    8192
 #define WEBSERVER_TASK_PRIORITY      1
 #define WEBSERVER_TASK_CORE          0  // Run networking on Core 0
 
@@ -66,7 +66,7 @@ inline uint8_t getRelayPinLevel(int ch, bool state) {
 #define MONITOR_TASK_PRIORITY        1
 #define MONITOR_TASK_CORE            1  // Run system monitor on Core 1
 
-#define DISPLAY_TASK_STACK_SIZE      3072
+#define DISPLAY_TASK_STACK_SIZE      4096
 #define DISPLAY_TASK_PRIORITY        1
 #define DISPLAY_TASK_CORE            1  // Run display updates on Core 1
 

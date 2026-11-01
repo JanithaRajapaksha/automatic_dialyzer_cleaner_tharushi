@@ -197,7 +197,7 @@ for (let i = 0; i < total; i++) {
         <span class="state-pill state-off" id="pill${i}">OFF</span>
       </div>
       <div class="card-desc">${channelNames[i] || 'Relay ' + (i + 1)}</div>
-      <button id="btn${i}" class="btn-toggle btn-off" onclick="toggleRelay(${i})">
+      <button id="btn${i}" type="button" class="btn-toggle btn-off" onclick="toggleRelay(${i})">
         Turn ON
       </button>
     </div>`;
@@ -234,6 +234,8 @@ function render(i) {
 
 let ws = null;
 let wsReconnectTimer = null;
+const pendingActions = Array(total).fill(0); // Timestamps of user clicks
+const sendQueue = []; // Queued commands during WebSocket handshake
 
 function connectWebSocket() {
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
@@ -251,14 +253,38 @@ function connectWebSocket() {
       clearTimeout(wsReconnectTimer);
       wsReconnectTimer = null;
     }
+    // Flush any commands queued while handshake was in progress
+    while (sendQueue.length > 0) {
+      const msg = sendQueue.shift();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      }
+    }
   };
 
   ws.onmessage = function(event) {
     try {
       const data = JSON.parse(event.data);
-      if (data.type === 'status' && Array.isArray(data.states)) {
+
+      // Targeted single-channel update: direct acknowledgment from ESP32
+      if (data.type === 'update' && typeof data.ch === 'number') {
+        const ch = data.ch;
+        if (ch >= 0 && ch < total) {
+          states[ch] = !!data.state;
+          pendingActions[ch] = 0; // Lock released
+          render(ch);
+        }
+      }
+      // Bulk status update
+      else if (data.type === 'status' && Array.isArray(data.states)) {
+        const now = Date.now();
         for (let i = 0; i < total; i++) {
-          states[i] = data.states[i];
+          // If user recently toggled this channel (< 1500ms) and state differs, ignore stale packet
+          if (now - pendingActions[i] < 1500 && states[i] !== !!data.states[i]) {
+            continue;
+          }
+          states[i] = !!data.states[i];
+          pendingActions[i] = 0;
           render(i);
         }
         updateConnectionStatus('connected', 'Live Realtime (WebSocket)');
@@ -269,7 +295,7 @@ function connectWebSocket() {
   };
 
   ws.onerror = function() {
-    // onclose will handle reconnect
+    // onclose handles reconnect
   };
 
   ws.onclose = function() {
@@ -281,28 +307,39 @@ function connectWebSocket() {
 }
 
 function toggleRelay(i) {
-  const previousState = states[i];
+  const now = Date.now();
+  // Debounce rapid double-clicks within 250ms
+  if (now - pendingActions[i] < 250) return;
+
+  const targetState = !states[i];
   // 1. Instant optimistic UI feedback (< 1ms)
-  states[i] = !previousState;
+  states[i] = targetState;
+  pendingActions[i] = now;
   render(i);
 
-  // 2. Transmit command instantly over WebSocket (< 10ms)
+  // 2. High-speed compact command payload
+  const payload = `SET:${i}:${targetState ? 1 : 0}`;
+
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ cmd: 'set', ch: i, state: states[i] ? 1 : 0 }));
+    ws.send(payload);
+  } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+    sendQueue.push(payload);
   } else {
     // Fallback to HTTP fetch if WebSocket is not open
-    fetch(`/relay?ch=${i}&state=${states[i] ? 1 : 0}`)
+    fetch(`/relay?ch=${i}&state=${targetState ? 1 : 0}`)
       .then(res => {
         if (!res.ok) throw new Error();
         return res.json();
       })
       .then(data => {
-        states[i] = data.state;
+        states[i] = !!data.state;
+        pendingActions[i] = 0;
         render(i);
       })
       .catch(() => {
-        // Revert on error
-        states[i] = previousState;
+        // Revert on communication failure
+        states[i] = !targetState;
+        pendingActions[i] = 0;
         render(i);
         updateConnectionStatus('disconnected', 'Communication Error');
       });
@@ -310,24 +347,33 @@ function toggleRelay(i) {
 }
 
 function setAllChannels(state) {
+  const now = Date.now();
   for (let i = 0; i < total; i++) {
     states[i] = !!state;
+    pendingActions[i] = now;
     render(i);
   }
 
+  const payload = `ALL:${state ? 1 : 0}`;
+
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ cmd: 'all', state: state ? 1 : 0 }));
+    ws.send(payload);
+  } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+    sendQueue.push(payload);
   } else {
     fetch(`/all?state=${state ? 1 : 0}`)
+      .then(() => {
+        for (let i = 0; i < total; i++) pendingActions[i] = 0;
+      })
       .catch(() => {
         updateConnectionStatus('disconnected', 'Error sending bulk command');
+        for (let i = 0; i < total; i++) pendingActions[i] = 0;
         refreshStates();
       });
   }
 }
 
 async function refreshStates() {
-  // If WebSocket is active, it handles live pushes automatically; skip HTTP polling
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
   try {
@@ -336,8 +382,10 @@ async function refreshStates() {
     const data = await response.json();
     const statesArr = Array.isArray(data) ? data : data.states;
     if (statesArr) {
+      const now = Date.now();
       for (let i = 0; i < total; i++) {
-        states[i] = statesArr[i];
+        if (now - pendingActions[i] < 1500) continue;
+        states[i] = !!statesArr[i];
         render(i);
       }
       updateConnectionStatus('connected', 'System Online (HTTP Fallback)');

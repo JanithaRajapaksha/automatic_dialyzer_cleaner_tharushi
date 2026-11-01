@@ -3,9 +3,10 @@
 
 static WebServer server(WEB_SERVER_PORT);
 static WebSocketsServer wsServer(WEBSOCKET_PORT);
+static volatile bool s_needBroadcast = false;
 
 static String getStatusJson() {
-  bool states[NUM_RELAYS];
+  bool states[NUM_RELAYS] = {false};
   getAllRelayStates(states, NUM_RELAYS);
 
   String response = "{\"type\":\"status\",\"states\":[";
@@ -23,7 +24,30 @@ void broadcastRelayStatus() {
 }
 
 static void handleWebSocketMessage(uint8_t num, const String& msg) {
-  if (msg.indexOf("\"set\"") != -1) {
+  // 1. High-speed compact command: SET:<ch>:<state> (e.g., SET:0:1)
+  if (msg.startsWith("SET:")) {
+    int firstColon = msg.indexOf(':');
+    int secondColon = msg.indexOf(':', firstColon + 1);
+    if (secondColon != -1) {
+      int ch = msg.substring(firstColon + 1, secondColon).toInt();
+      int state = msg.substring(secondColon + 1).toInt();
+      if (ch >= 0 && ch < NUM_RELAYS && (state == 0 || state == 1)) {
+        setRelay(ch, state == 1);
+        s_needBroadcast = true;
+      }
+    }
+  } else if (msg.startsWith("ALL:")) {
+    int state = msg.substring(4).toInt();
+    if (state == 0 || state == 1) {
+      setAllRelays(state == 1);
+      s_needBroadcast = true;
+    }
+  } else if (msg.startsWith("STATUS")) {
+    String status = getStatusJson();
+    wsServer.sendTXT(num, status);
+  }
+  // 2. JSON Fallback: {"cmd":"set","ch":0,"state":1}
+  else if (msg.indexOf("\"set\"") != -1) {
     int chIdx = msg.indexOf("\"ch\":");
     int stateIdx = msg.indexOf("\"state\":");
     if (chIdx != -1 && stateIdx != -1) {
@@ -31,7 +55,7 @@ static void handleWebSocketMessage(uint8_t num, const String& msg) {
       int state = msg.substring(stateIdx + 8).toInt();
       if (ch >= 0 && ch < NUM_RELAYS && (state == 0 || state == 1)) {
         setRelay(ch, state == 1);
-        broadcastRelayStatus();
+        s_needBroadcast = true;
       }
     }
   } else if (msg.indexOf("\"all\"") != -1) {
@@ -40,7 +64,7 @@ static void handleWebSocketMessage(uint8_t num, const String& msg) {
       int state = msg.substring(stateIdx + 8).toInt();
       if (state == 0 || state == 1) {
         setAllRelays(state == 1);
-        broadcastRelayStatus();
+        s_needBroadcast = true;
       }
     }
   } else if (msg.indexOf("\"status\"") != -1) {
@@ -64,8 +88,15 @@ static void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size
     }
 
     case WStype_TEXT: {
-      String msg = String((char*)payload);
-      handleWebSocketMessage(num, msg);
+      if (length == 0 || payload == nullptr) break;
+      char* safeBuf = (char*)malloc(length + 1);
+      if (safeBuf) {
+        memcpy(safeBuf, payload, length);
+        safeBuf[length] = '\0';
+        String msg = String(safeBuf);
+        free(safeBuf);
+        handleWebSocketMessage(num, msg);
+      }
       break;
     }
 
@@ -98,8 +129,8 @@ static void handleRelay() {
     return;
   }
 
-  // Push update to all connected WebSocket clients instantly
-  broadcastRelayStatus();
+  // Trigger non-reentrant broadcast to all WebSocket clients
+  s_needBroadcast = true;
 
   String response = "{";
   response += "\"channel\":" + String(ch + 1) + ",";
@@ -124,8 +155,8 @@ static void handleAll() {
 
   setAllRelays(state == 1);
 
-  // Push update to all connected WebSocket clients instantly
-  broadcastRelayStatus();
+  // Trigger non-reentrant broadcast to all WebSocket clients
+  s_needBroadcast = true;
 
   String response = "{\"success\":true,\"state\":" + String(state == 1 ? "true" : "false") + "}";
   server.send(200, "application/json", response);
@@ -169,4 +200,10 @@ void initWebServer() {
 void handleWebServerClient() {
   server.handleClient();
   wsServer.loop();
+
+  // Defer broadcast so it runs outside of wsServer.loop() and HTTP handleClient()
+  if (s_needBroadcast) {
+    s_needBroadcast = false;
+    broadcastRelayStatus();
+  }
 }

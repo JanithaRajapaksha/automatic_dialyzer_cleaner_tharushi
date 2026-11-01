@@ -90,16 +90,17 @@ void getAllRelayStates(bool* statesOut, int maxCount) {
 
   int limit = (maxCount < NUM_RELAYS) ? maxCount : NUM_RELAYS;
 
+  // Pre-fill directly so array is never uninitialized even if mutex is held
+  for (int i = 0; i < limit; i++) {
+    statesOut[i] = s_relayState[i];
+  }
+
   if (s_relayMutex != NULL) {
-    if (xSemaphoreTake(s_relayMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(s_relayMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
       for (int i = 0; i < limit; i++) {
         statesOut[i] = s_relayState[i];
       }
       xSemaphoreGive(s_relayMutex);
-    }
-  } else {
-    for (int i = 0; i < limit; i++) {
-      statesOut[i] = s_relayState[i];
     }
   }
 }

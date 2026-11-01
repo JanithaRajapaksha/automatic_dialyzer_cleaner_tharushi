@@ -103,6 +103,23 @@ void setup() {
   Serial.println("==================================================");
   Serial.println("[Init] Relay channels initialized to safe OFF state.");
 
+  esp_reset_reason_t reason = esp_reset_reason();
+  const char* reasonStr = "Unknown";
+  switch (reason) {
+    case ESP_RST_POWERON:   reasonStr = "Power-on event"; break;
+    case ESP_RST_EXT:       reasonStr = "External pin reset"; break;
+    case ESP_RST_SW:        reasonStr = "Software reset"; break;
+    case ESP_RST_PANIC:     reasonStr = "Software exception / panic"; break;
+    case ESP_RST_INT_WDT:   reasonStr = "Interrupt watchdog"; break;
+    case ESP_RST_TASK_WDT:  reasonStr = "Task watchdog"; break;
+    case ESP_RST_WDT:       reasonStr = "Other watchdog"; break;
+    case ESP_RST_DEEPSLEEP: reasonStr = "Deep-sleep wakeup"; break;
+    case ESP_RST_BROWNOUT:  reasonStr = "BROWNOUT RESET (Voltage dip below 2.8V!)"; break;
+    case ESP_RST_SDIO:      reasonStr = "SDIO reset"; break;
+    default: break;
+  }
+  Serial.printf("[Boot] Last Reset Reason (%d): %s\n", reason, reasonStr);
+
   // 2. Initialize 20x4 I2C LCD Display
   initDisplay();
   displayBootScreen();

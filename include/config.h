@@ -16,9 +16,10 @@ extern const char* WIFI_SSID;
 extern const char* WIFI_PASSWORD;
 
 // ==========================================
-// Web Server Configuration
+// Web Server & WebSocket Configuration
 // ==========================================
 #define WEB_SERVER_PORT 80
+#define WEBSOCKET_PORT 81
 
 // ==========================================
 // Relay Configuration (ESP32-WROOM-32)
@@ -45,6 +46,16 @@ inline uint8_t getRelayPinLevel(int ch, bool state) {
 }
 
 // ==========================================
+// 20x4 I2C LCD Configuration (HD44780 / PCF8574)
+// ==========================================
+#define LCD_I2C_ADDR_PRIMARY   0x27   // Default PCF8574 I2C address
+#define LCD_I2C_ADDR_SECONDARY 0x3F   // Alternate PCF8574A I2C address
+#define LCD_COLS               20
+#define LCD_ROWS               4
+#define LCD_SDA_PIN            21     // Default ESP32 I2C SDA
+#define LCD_SCL_PIN            22     // Default ESP32 I2C SCL
+
+// ==========================================
 // FreeRTOS Configuration
 // ==========================================
 #define WEBSERVER_TASK_STACK_SIZE    4096
@@ -54,6 +65,10 @@ inline uint8_t getRelayPinLevel(int ch, bool state) {
 #define MONITOR_TASK_STACK_SIZE      2048
 #define MONITOR_TASK_PRIORITY        1
 #define MONITOR_TASK_CORE            1  // Run system monitor on Core 1
+
+#define DISPLAY_TASK_STACK_SIZE      3072
+#define DISPLAY_TASK_PRIORITY        1
+#define DISPLAY_TASK_CORE            1  // Run display updates on Core 1
 
 #endif // CONFIG_H
 

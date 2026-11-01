@@ -1,4 +1,5 @@
 #include "relays.h"
+#include "display.h"
 
 // Internal relay state tracking
 static bool s_relayState[NUM_RELAYS] = {false};
@@ -32,11 +33,13 @@ bool setRelay(int ch, bool state) {
       s_relayState[ch] = state;
       digitalWrite(RELAY_PINS[ch], getRelayPinLevel(ch, state));
       xSemaphoreGive(s_relayMutex);
+      displayNotifyRelayChange(ch, state);
       return true;
     }
   } else {
     s_relayState[ch] = state;
     digitalWrite(RELAY_PINS[ch], getRelayPinLevel(ch, state));
+    displayNotifyRelayChange(ch, state);
     return true;
   }
 
@@ -51,12 +54,14 @@ void setAllRelays(bool state) {
         digitalWrite(RELAY_PINS[i], getRelayPinLevel(i, state));
       }
       xSemaphoreGive(s_relayMutex);
+      displayNotifyRelayChange(-1, state);
     }
   } else {
     for (int i = 0; i < NUM_RELAYS; i++) {
       s_relayState[i] = state;
       digitalWrite(RELAY_PINS[i], getRelayPinLevel(i, state));
     }
+    displayNotifyRelayChange(-1, state);
   }
 }
 

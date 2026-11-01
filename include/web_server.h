@@ -6,11 +6,14 @@
 #include "relays.h"
 #include "webpage.h"
 
-// Initialize web server routes and start listening
+// Initialize web server routes, WebSocket server, and start listening
 void initWebServer();
 
-// Handle client requests (called inside the FreeRTOS WebServer task)
+// Handle client requests and WebSocket events (called inside the FreeRTOS WebServer task)
 void handleWebServerClient();
+
+// Broadcast current relay status to all connected WebSocket clients
+void broadcastRelayStatus();
 
 #endif // WEB_SERVER_H
 

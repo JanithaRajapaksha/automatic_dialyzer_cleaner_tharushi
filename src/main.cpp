@@ -14,10 +14,12 @@
 #include "config.h"
 #include "relays.h"
 #include "web_server.h"
+#include "display.h"
 
 // Task handles for FreeRTOS
 TaskHandle_t webServerTaskHandle = NULL;
 TaskHandle_t systemMonitorTaskHandle = NULL;
+TaskHandle_t displayTaskHandle = NULL;
 
 // ----------------------------------------------------------------------------
 // Connect to Wi-Fi
@@ -25,6 +27,8 @@ TaskHandle_t systemMonitorTaskHandle = NULL;
 void connectWiFi() {
   Serial.printf("[WiFi] Connecting to %s...\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
+  // Disable modem power-saving sleep to minimize latency (< 3ms ping vs 100-300ms)
+  WiFi.setSleep(false);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   int attempts = 0;
@@ -36,6 +40,7 @@ void connectWiFi() {
 
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
+    WiFi.setSleep(false);
     Serial.println("[WiFi] Connected successfully!");
     Serial.print("[WiFi] IP Address: http://");
     Serial.println(WiFi.localIP());
@@ -98,13 +103,17 @@ void setup() {
   Serial.println("==================================================");
   Serial.println("[Init] Relay channels initialized to safe OFF state.");
 
-  // 2. Connect to Wi-Fi network
+  // 2. Initialize 20x4 I2C LCD Display
+  initDisplay();
+  displayBootScreen();
+
+  // 3. Connect to Wi-Fi network
   connectWiFi();
 
-  // 3. Initialize HTTP Web Server and endpoints
+  // 4. Initialize HTTP Web Server and endpoints
   initWebServer();
 
-  // 4. Create FreeRTOS Tasks
+  // 5. Create FreeRTOS Tasks
   Serial.println("[Init] Spawning FreeRTOS tasks...");
 
   // Web Server Task pinned to Core 0 (Networking Core)
@@ -127,6 +136,17 @@ void setup() {
     MONITOR_TASK_PRIORITY,
     &systemMonitorTaskHandle,
     MONITOR_TASK_CORE
+  );
+
+  // Display Task pinned to Core 1 (Application Core)
+  xTaskCreatePinnedToCore(
+    displayTask,
+    "DisplayTask",
+    DISPLAY_TASK_STACK_SIZE,
+    NULL,
+    DISPLAY_TASK_PRIORITY,
+    &displayTaskHandle,
+    DISPLAY_TASK_CORE
   );
 
   Serial.println("[Init] Initialization complete. System ready.");

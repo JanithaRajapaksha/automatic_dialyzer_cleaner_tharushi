@@ -232,56 +232,127 @@ function render(i) {
   }
 }
 
-async function setRelay(i, state) {
-  const response = await fetch(`/relay?ch=${i}&state=${state ? 1 : 0}`);
-  if (!response.ok) throw new Error('Relay update failed');
-  const data = await response.json();
-  states[i] = data.state;
-  render(i);
+let ws = null;
+let wsReconnectTimer = null;
+
+function connectWebSocket() {
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.hostname}:81/`;
+
+  updateConnectionStatus('updating', 'Connecting Realtime Link...');
+
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = function() {
+    updateConnectionStatus('connected', 'Live Realtime (WebSocket)');
+    if (wsReconnectTimer) {
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = null;
+    }
+  };
+
+  ws.onmessage = function(event) {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'status' && Array.isArray(data.states)) {
+        for (let i = 0; i < total; i++) {
+          states[i] = data.states[i];
+          render(i);
+        }
+        updateConnectionStatus('connected', 'Live Realtime (WebSocket)');
+      }
+    } catch (err) {
+      console.error('WS Parse Error', err);
+    }
+  };
+
+  ws.onerror = function() {
+    // onclose will handle reconnect
+  };
+
+  ws.onclose = function() {
+    updateConnectionStatus('disconnected', 'WebSocket Disconnected. Reconnecting...');
+    if (!wsReconnectTimer) {
+      wsReconnectTimer = setTimeout(connectWebSocket, 2000);
+    }
+  };
 }
 
-async function toggleRelay(i) {
-  try {
-    updateConnectionStatus('updating', `Updating Channel ${i + 1}...`);
-    await setRelay(i, !states[i]);
-    updateConnectionStatus('connected', 'System Online');
-  } catch (e) {
-    updateConnectionStatus('disconnected', 'Communication Error');
+function toggleRelay(i) {
+  const previousState = states[i];
+  // 1. Instant optimistic UI feedback (< 1ms)
+  states[i] = !previousState;
+  render(i);
+
+  // 2. Transmit command instantly over WebSocket (< 10ms)
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ cmd: 'set', ch: i, state: states[i] ? 1 : 0 }));
+  } else {
+    // Fallback to HTTP fetch if WebSocket is not open
+    fetch(`/relay?ch=${i}&state=${states[i] ? 1 : 0}`)
+      .then(res => {
+        if (!res.ok) throw new Error();
+        return res.json();
+      })
+      .then(data => {
+        states[i] = data.state;
+        render(i);
+      })
+      .catch(() => {
+        // Revert on error
+        states[i] = previousState;
+        render(i);
+        updateConnectionStatus('disconnected', 'Communication Error');
+      });
   }
 }
 
-async function setAllChannels(state) {
-  try {
-    updateConnectionStatus('updating', state ? 'Activating all channels...' : 'Stopping all channels...');
-    const response = await fetch(`/all?state=${state ? 1 : 0}`);
-    if (!response.ok) throw new Error('Bulk update failed');
-    for (let i = 0; i < total; i++) {
-      states[i] = !!state;
-      render(i);
-    }
-    updateConnectionStatus('connected', 'All channels updated');
-  } catch (e) {
-    updateConnectionStatus('disconnected', 'Error sending bulk command');
+function setAllChannels(state) {
+  for (let i = 0; i < total; i++) {
+    states[i] = !!state;
+    render(i);
+  }
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ cmd: 'all', state: state ? 1 : 0 }));
+  } else {
+    fetch(`/all?state=${state ? 1 : 0}`)
+      .catch(() => {
+        updateConnectionStatus('disconnected', 'Error sending bulk command');
+        refreshStates();
+      });
   }
 }
 
 async function refreshStates() {
+  // If WebSocket is active, it handles live pushes automatically; skip HTTP polling
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+
   try {
     const response = await fetch('/status');
     if (!response.ok) throw new Error('Status poll failed');
     const data = await response.json();
-    for (let i = 0; i < total; i++) {
-      states[i] = data[i];
-      render(i);
+    const statesArr = Array.isArray(data) ? data : data.states;
+    if (statesArr) {
+      for (let i = 0; i < total; i++) {
+        states[i] = statesArr[i];
+        render(i);
+      }
+      updateConnectionStatus('connected', 'System Online (HTTP Fallback)');
     }
-    updateConnectionStatus('connected', 'System Online');
   } catch (e) {
     updateConnectionStatus('disconnected', 'Dialyzer Cleaner Disconnected');
   }
 }
 
+// Initial state fetch & WebSocket startup
 refreshStates();
-setInterval(refreshStates, 3000);
+connectWebSocket();
+
+// Low-frequency fallback poll only if WebSocket is disconnected
+setInterval(refreshStates, 5000);
 </script>
 </body>
 </html>

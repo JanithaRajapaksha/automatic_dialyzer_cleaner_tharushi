@@ -1,6 +1,78 @@
 #include "web_server.h"
+#include <WebSocketsServer.h>
 
 static WebServer server(WEB_SERVER_PORT);
+static WebSocketsServer wsServer(WEBSOCKET_PORT);
+
+static String getStatusJson() {
+  bool states[NUM_RELAYS];
+  getAllRelayStates(states, NUM_RELAYS);
+
+  String response = "{\"type\":\"status\",\"states\":[";
+  for (int i = 0; i < NUM_RELAYS; i++) {
+    if (i > 0) response += ",";
+    response += states[i] ? "true" : "false";
+  }
+  response += "]}";
+  return response;
+}
+
+void broadcastRelayStatus() {
+  String json = getStatusJson();
+  wsServer.broadcastTXT(json);
+}
+
+static void handleWebSocketMessage(uint8_t num, const String& msg) {
+  if (msg.indexOf("\"set\"") != -1) {
+    int chIdx = msg.indexOf("\"ch\":");
+    int stateIdx = msg.indexOf("\"state\":");
+    if (chIdx != -1 && stateIdx != -1) {
+      int ch = msg.substring(chIdx + 5).toInt();
+      int state = msg.substring(stateIdx + 8).toInt();
+      if (ch >= 0 && ch < NUM_RELAYS && (state == 0 || state == 1)) {
+        setRelay(ch, state == 1);
+        broadcastRelayStatus();
+      }
+    }
+  } else if (msg.indexOf("\"all\"") != -1) {
+    int stateIdx = msg.indexOf("\"state\":");
+    if (stateIdx != -1) {
+      int state = msg.substring(stateIdx + 8).toInt();
+      if (state == 0 || state == 1) {
+        setAllRelays(state == 1);
+        broadcastRelayStatus();
+      }
+    }
+  } else if (msg.indexOf("\"status\"") != -1) {
+    String status = getStatusJson();
+    wsServer.sendTXT(num, status);
+  }
+}
+
+static void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+    case WStype_DISCONNECTED:
+      Serial.printf("[WS] Client [%u] Disconnected\n", num);
+      break;
+
+    case WStype_CONNECTED: {
+      IPAddress ip = wsServer.remoteIP(num);
+      Serial.printf("[WS] Client [%u] Connected from %s\n", num, ip.toString().c_str());
+      String status = getStatusJson();
+      wsServer.sendTXT(num, status);
+      break;
+    }
+
+    case WStype_TEXT: {
+      String msg = String((char*)payload);
+      handleWebSocketMessage(num, msg);
+      break;
+    }
+
+    default:
+      break;
+  }
+}
 
 static void handleRoot() {
   server.send_P(200, "text/html", webpage);
@@ -26,6 +98,9 @@ static void handleRelay() {
     return;
   }
 
+  // Push update to all connected WebSocket clients instantly
+  broadcastRelayStatus();
+
   String response = "{";
   response += "\"channel\":" + String(ch + 1) + ",";
   response += "\"name\":\"" + String(getRelayName(ch)) + "\",";
@@ -49,22 +124,15 @@ static void handleAll() {
 
   setAllRelays(state == 1);
 
+  // Push update to all connected WebSocket clients instantly
+  broadcastRelayStatus();
+
   String response = "{\"success\":true,\"state\":" + String(state == 1 ? "true" : "false") + "}";
   server.send(200, "application/json", response);
 }
 
 static void handleStatus() {
-  bool states[NUM_RELAYS];
-  getAllRelayStates(states, NUM_RELAYS);
-
-  String response = "[";
-  for (int i = 0; i < NUM_RELAYS; i++) {
-    if (i > 0) response += ",";
-    response += states[i] ? "true" : "false";
-  }
-  response += "]";
-
-  server.send(200, "application/json", response);
+  server.send(200, "application/json", getStatusJson());
 }
 
 static void handleInfo() {
@@ -92,9 +160,13 @@ void initWebServer() {
 
   server.begin();
   Serial.println("[WebServer] HTTP server started on port " + String(WEB_SERVER_PORT));
+
+  wsServer.begin();
+  wsServer.onEvent(onWebSocketEvent);
+  Serial.println("[WebSocket] Server started on port " + String(WEBSOCKET_PORT));
 }
 
 void handleWebServerClient() {
   server.handleClient();
+  wsServer.loop();
 }
-

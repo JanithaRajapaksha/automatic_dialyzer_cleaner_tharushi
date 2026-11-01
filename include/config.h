@@ -83,7 +83,7 @@ inline uint8_t getRelayPinLevel(int ch, bool state) {
 #define WEBSERVER_TASK_PRIORITY      1
 #define WEBSERVER_TASK_CORE          0  // Run networking on Core 0
 
-#define MONITOR_TASK_STACK_SIZE      2048
+#define MONITOR_TASK_STACK_SIZE      4096
 #define MONITOR_TASK_PRIORITY        1
 #define MONITOR_TASK_CORE            1  // Run system monitor on Core 1
 

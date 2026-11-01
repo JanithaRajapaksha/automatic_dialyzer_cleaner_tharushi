@@ -1,11 +1,9 @@
 #include "pressure_sensor.h"
-#include <esp_timer.h>
 
 // ============================================================================
 // Internal State & Mutex
 // ============================================================================
 static SemaphoreHandle_t s_sensorMutex = NULL;
-static portMUX_TYPE s_pulseMux = portMUX_INITIALIZER_UNLOCKED;
 
 static PressureData s_latestData = {
   .isConnected   = false,
@@ -39,11 +37,8 @@ void initPressureSensor() {
   Serial.printf("[Pressure] HX710B initialized on DOUT=GPIO%d, SCLK=GPIO%d\n",
                 HX710_DOUT_PIN, HX710_SCLK_PIN);
 
-  // Allow sensor internal oscillator to power up and stabilize (approx 400ms)
-  vTaskDelay(pdMS_TO_TICKS(400));
-
-  // Perform initial tare calibration
-  tarePressureSensor(8);
+  // Perform quick initial tare if sensor is ready
+  tarePressureSensor(4);
 }
 
 bool isPressureSensorReady() {
@@ -57,34 +52,30 @@ bool readPressureRaw(long* rawOut, uint32_t timeoutMs) {
   // Wait for DOUT to go LOW (data ready signal from HX710B)
   while (digitalRead(HX710_DOUT_PIN) == HIGH) {
     if (millis() - start > timeoutMs) {
-      return false; // Timeout: sensor disconnected, unpowered, or busy
+      return false; // Timeout: sensor disconnected or converting
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 
-  // Acquire critical section for microsecond-accurate SCLK pulses
-  // (Prevents FreeRTOS preemption from exceeding 60us power-down timeout)
-  portENTER_CRITICAL(&s_pulseMux);
-
+  // 24 clock pulses: read MSB first
+  // Standard microsecond delays (no spinlock or interrupt blocking)
   unsigned long raw = 0;
   for (int i = 0; i < 24; i++) {
     digitalWrite(HX710_SCLK_PIN, HIGH);
-    ets_delay_us(1);
+    delayMicroseconds(1);
     raw = (raw << 1);
     digitalWrite(HX710_SCLK_PIN, LOW);
-    ets_delay_us(1);
+    delayMicroseconds(1);
     if (digitalRead(HX710_DOUT_PIN)) {
       raw |= 1;
     }
   }
 
-  // 25th clock pulse: Selects differential input channel and resets DOUT to HIGH
+  // 25th clock pulse: Selects differential input and pulls DOUT back to HIGH
   digitalWrite(HX710_SCLK_PIN, HIGH);
-  ets_delay_us(1);
+  delayMicroseconds(1);
   digitalWrite(HX710_SCLK_PIN, LOW);
-  ets_delay_us(1);
-
-  portEXIT_CRITICAL(&s_pulseMux);
+  delayMicroseconds(1);
 
   // 24-bit two's complement sign extension
   long signedVal = (long)raw;
@@ -101,18 +92,21 @@ bool tarePressureSensor(uint8_t samples) {
 
   long sum = 0;
   uint8_t count = 0;
+  unsigned long start = millis();
 
-  for (uint8_t i = 0; i < samples; i++) {
-    long sample = 0;
-    if (readPressureRaw(&sample, 150)) {
-      sum += sample;
-      count++;
+  // Non-blocking sample collection with maximum 600ms total budget
+  while (count < samples && (millis() - start < 600)) {
+    if (isPressureSensorReady()) {
+      long sample = 0;
+      if (readPressureRaw(&sample, 10)) {
+        sum += sample;
+        count++;
+      }
     }
-    vTaskDelay(pdMS_TO_TICKS(25));
+    vTaskDelay(pdMS_TO_TICKS(15));
   }
 
   if (count == 0) {
-    Serial.println("[Pressure] Warning: Failed to tare HX710B (sensor not responding).");
     return false;
   }
 
@@ -140,10 +134,15 @@ float getPressureScale() {
 }
 
 void updatePressureSensor() {
-  long raw = 0;
-  bool ok = readPressureRaw(&raw, 80);
+  // Non-blocking check: only read if DOUT is LOW (conversion is ready)
+  if (!isPressureSensorReady()) {
+    return;
+  }
 
-  if (s_sensorMutex != NULL && xSemaphoreTake(s_sensorMutex, pdMS_TO_TICKS(40)) == pdTRUE) {
+  long raw = 0;
+  bool ok = readPressureRaw(&raw, 5);
+
+  if (s_sensorMutex != NULL && xSemaphoreTake(s_sensorMutex, pdMS_TO_TICKS(30)) == pdTRUE) {
     s_latestData.isConnected = ok;
 
     if (ok) {
@@ -198,4 +197,3 @@ String getPressureJson() {
   json += "}";
   return json;
 }
-

@@ -105,13 +105,13 @@ void systemMonitorTask(void* pvParameters) {
 // Setup
 // ----------------------------------------------------------------------------
 void setup() {
+  Serial.begin(115200);
+  delay(100);
+
   // 1. Initialize relay hardware FIRST so all channels are safely OFF immediately
   initRelays();
   initReprocessor();
   initPressureSensor();
-
-  Serial.begin(115200);
-  delay(500);
 
   Serial.println("\n==================================================");
   Serial.printf(" %s v%s\n", SYSTEM_NAME, SYSTEM_VERSION);

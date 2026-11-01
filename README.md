@@ -12,6 +12,7 @@ automatic_dialyzer_cleaner_tharushi/
 ├── include/             # Header files
 │   ├── config.h         # System constants, pin definitions, timing & FreeRTOS settings
 │   ├── display.h        # 20x4 I2C LCD driver interface
+│   ├── pressure_sensor.h# HX710B 24-bit ADC air pressure sensor driver & calibration
 │   ├── relays.h         # Thread-safe relay driver & immediate hardware E-Stop
 │   ├── reprocessor.h    # Asynchronous FSM sequencer & process stage definitions
 │   ├── web_server.h     # HTTP REST server & real-time WebSocket controller
@@ -20,6 +21,7 @@ automatic_dialyzer_cleaner_tharushi/
 │   ├── main.cpp         # Main entry point & FreeRTOS task launcher
 │   ├── config.cpp       # Actuator definitions, pin maps & Wi-Fi credentials
 │   ├── display.cpp      # Live 20x4 LCD telemetry driver (Auto, Manual, Idle)
+│   ├── pressure_sensor.cpp # HX710B bit-bang reader, tare, conversions (mmHg/kPa/psi)
 │   ├── relays.cpp       # Mutex-protected GPIO control & direct register E-Stop
 │   ├── reprocessor.cpp  # Reprocessor sequential FSM engine & interlock timers
 │   └── web_server.cpp   # REST API & WebSocket command processor
@@ -35,7 +37,8 @@ automatic_dialyzer_cleaner_tharushi/
 | `WebServerTask` | **Core 0** | 1 | 8192 bytes | High-speed HTTP server (port 80) and WebSocket server (port 81); handles bidirectional streaming telemetry and instant command dispatch. |
 | `ReprocessorTask` | **Core 1** | 2 | 4096 bytes | Dedicated asynchronous finite state machine (20 Hz); handles process stages, precision sub-step timers, and valve-pump interlocks. |
 | `DisplayTask` | **Core 1** | 1 | 4096 bytes | Live telemetry update to the 20x4 I2C LCD display (active stage, timer, countdown, active actuators, WiFi, IP, and RSSI). |
-| `SystemMonitorTask` | **Core 1** | 1 | 2048 bytes | Diagnostics & watchdog; monitors Wi-Fi connection, auto-reconnects on drop, and logs heap statistics. |
+| `SystemMonitorTask` | **Core 1** | 1 | 4096 bytes | Diagnostics & watchdog; reads HX710B pressure sensor (10 Hz), monitors Wi-Fi connection, auto-reconnects on drop, and logs heap statistics. |
+| `Sensor Mutex` | — | — | — | `SemaphoreHandle_t` prevents race conditions while reading HX710B 24-bit pressure data across tasks. |
 | `Relay Mutex` | — | — | — | `SemaphoreHandle_t` protects relay states and GPIO pins against race conditions across tasks. |
 | `LCD Mutex` | — | — | — | `SemaphoreHandle_t` prevents I2C bus collision across tasks. |
 

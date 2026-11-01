@@ -419,6 +419,9 @@ const char webpage[] PROGMEM = R"rawliteral(
         <div style="font-size:0.95rem;color:#334155;font-weight:600;margin-top:6px;">
           <span id="p-kpa">0.00</span> kPa &nbsp;|&nbsp; <span id="p-psi">0.00</span> psi
         </div>
+        <div style="font-size:0.75rem;color:#64748b;margin-top:4px;">
+          Kalman Stabilized &nbsp;|&nbsp; Raw: <span id="p-raw-mmhg">0.0</span> mmHg &nbsp;|&nbsp; Gain: <span id="p-gain">0.00</span>
+        </div>
       </div>
 
       <!-- Live Statistical Badges -->
@@ -785,12 +788,17 @@ function renderPressureTelemetry(data) {
 
   const val = (typeof data.mmhg === 'number') ? data.mmhg : parseFloat(data.mmhg) || 0;
 
+  const pRawMmhg = document.getElementById('p-raw-mmhg');
+  const pGain = document.getElementById('p-gain');
+
   if (pMmhg) pMmhg.textContent = val.toFixed(1);
   if (pKpa) pKpa.textContent = (typeof data.kpa === 'number') ? data.kpa.toFixed(2) : data.kpa;
   if (pPsi) pPsi.textContent = (typeof data.psi === 'number') ? data.psi.toFixed(2) : data.psi;
   if (pRaw) pRaw.textContent = data.raw;
   if (pTare) pTare.textContent = data.tare;
   if (pDelta) pDelta.textContent = data.delta;
+  if (pRawMmhg && typeof data.rawMmhg !== 'undefined') pRawMmhg.textContent = (typeof data.rawMmhg === 'number') ? data.rawMmhg.toFixed(1) : data.rawMmhg;
+  if (pGain && typeof data.gain !== 'undefined') pGain.textContent = (typeof data.gain === 'number') ? data.gain.toFixed(2) : data.gain;
 
   // Track live history for waveform chart
   const now = Date.now();

@@ -10,17 +10,84 @@ static PressureData s_latestData = {
   .rawValue      = 0,
   .tareOffset    = 0,
   .deltaRaw      = 0,
+  .rawMmhg       = 0.0f,
   .pressureKPa   = 0.0f,
   .pressureMmhg  = 0.0f,
   .pressurePsi   = 0.0f,
+  .kalmanGain    = 0.0f,
   .timestampMs   = 0
 };
 
 // Default scale factor for typical 40kPa piezoresistive sensor on HX710B
 // (Approx 20,000 counts per 1 kPa = ~2,666 counts per 1 mmHg)
 static float s_countsPerKpa = 20000.0f;
-static float s_filteredRaw = 0.0f;
-static bool s_hasValidReading = false;
+
+// ============================================================================
+// Adaptive 1D Kalman Filter
+// Suppresses ADC & electrical noise during steady holding while tracking rapid
+// pressure surges (e.g. pump start / valve actuation) with near-zero latency.
+// ============================================================================
+class AdaptiveKalmanFilter {
+private:
+  float x;          // State estimate (mmHg)
+  float p;          // Estimation error covariance
+  float q;          // Base process noise covariance (how quickly real pressure changes)
+  float r;          // Measurement noise covariance (sensor / ADC noise variance)
+  float k;          // Current Kalman gain (0.0 to 1.0)
+  bool initialized;
+
+public:
+  AdaptiveKalmanFilter(float processNoise = 0.08f, float measurementNoise = 2.5f)
+    : x(0.0f), p(1.0f), q(processNoise), r(measurementNoise), k(0.0f), initialized(false) {}
+
+  void reset(float initialVal = 0.0f) {
+    x = initialVal;
+    p = 1.0f;
+    k = 0.0f;
+    initialized = true;
+  }
+
+  void setParameters(float processNoise, float measurementNoise) {
+    if (processNoise > 0.0001f) q = processNoise;
+    if (measurementNoise > 0.0001f) r = measurementNoise;
+  }
+
+  float update(float measurement) {
+    if (!initialized) {
+      x = measurement;
+      p = 1.0f;
+      initialized = true;
+      return x;
+    }
+
+    // Innovation residual
+    float residual = measurement - x;
+    float absRes = fabsf(residual);
+
+    // Adaptive Process Noise:
+    // If pressure jumps significantly (> 2.0 mmHg in 100ms), pump or valve activated.
+    // Scale Q dynamically to snap immediately to the new pressure without lag.
+    float dynamicQ = q;
+    if (absRes > 2.0f) {
+      dynamicQ += absRes * 0.75f;
+    }
+
+    // Time update (prediction)
+    float p_pred = p + dynamicQ;
+
+    // Measurement update (correction)
+    k = p_pred / (p_pred + r);
+    x = x + k * residual;
+    p = (1.0f - k) * p_pred;
+
+    return x;
+  }
+
+  float getState() const { return x; }
+  float getGain() const { return k; }
+};
+
+static AdaptiveKalmanFilter s_kalman(0.08f, 2.5f);
 
 // ============================================================================
 // Low-Level Driver
@@ -114,7 +181,7 @@ bool tarePressureSensor(uint8_t samples) {
 
   if (s_sensorMutex != NULL && xSemaphoreTake(s_sensorMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
     s_latestData.tareOffset = newTare;
-    s_filteredRaw = (float)newTare;
+    s_kalman.reset(0.0f);
     xSemaphoreGive(s_sensorMutex);
     Serial.printf("[Pressure] Tare successful. Offset: %ld counts (%d samples)\n", newTare, count);
     return true;
@@ -133,6 +200,14 @@ float getPressureScale() {
   return s_countsPerKpa;
 }
 
+void setKalmanParameters(float processNoise, float measurementNoise) {
+  s_kalman.setParameters(processNoise, measurementNoise);
+}
+
+void resetKalmanFilter(float initialMmhg) {
+  s_kalman.reset(initialMmhg);
+}
+
 void updatePressureSensor() {
   // Non-blocking check: only read if DOUT is LOW (conversion is ready)
   if (!isPressureSensorReady()) {
@@ -146,21 +221,20 @@ void updatePressureSensor() {
     s_latestData.isConnected = ok;
 
     if (ok) {
-      // Exponential moving average filter (alpha = 0.25)
-      if (!s_hasValidReading) {
-        s_filteredRaw = (float)raw;
-        s_hasValidReading = true;
-      } else {
-        s_filteredRaw = (s_filteredRaw * 0.75f) + ((float)raw * 0.25f);
-      }
-
       s_latestData.rawValue = raw;
-      s_latestData.deltaRaw = (long)s_filteredRaw - s_latestData.tareOffset;
+      s_latestData.deltaRaw = raw - s_latestData.tareOffset;
 
-      float kpa = (float)s_latestData.deltaRaw / s_countsPerKpa;
-      s_latestData.pressureKPa  = kpa;
-      s_latestData.pressureMmhg = kpa * 7.50062f; // 1 kPa = 7.50062 mmHg
-      s_latestData.pressurePsi  = kpa * 0.145038f; // 1 kPa = 0.145038 psi
+      // Instantaneous unfiltered values
+      float rawKpa = (float)s_latestData.deltaRaw / s_countsPerKpa;
+      float rawMmhg = rawKpa * 7.50062f; // 1 kPa = 7.50062 mmHg
+      s_latestData.rawMmhg = rawMmhg;
+
+      // Apply 1D Adaptive Kalman Filter (removes ADC/electrical jitter)
+      float filteredMmhg = s_kalman.update(rawMmhg);
+      s_latestData.pressureMmhg = filteredMmhg;
+      s_latestData.pressureKPa  = filteredMmhg / 7.50062f;
+      s_latestData.pressurePsi  = s_latestData.pressureKPa * 0.145038f;
+      s_latestData.kalmanGain   = s_kalman.getGain();
       s_latestData.timestampMs  = millis();
     }
 
@@ -191,7 +265,9 @@ String getPressureJson() {
   json += "\"delta\":" + String(d.deltaRaw) + ",";
   json += "\"kpa\":" + String(d.pressureKPa, 2) + ",";
   json += "\"mmhg\":" + String(d.pressureMmhg, 1) + ",";
+  json += "\"rawMmhg\":" + String(d.rawMmhg, 1) + ",";
   json += "\"psi\":" + String(d.pressurePsi, 2) + ",";
+  json += "\"gain\":" + String(d.kalmanGain, 2) + ",";
   json += "\"scale\":" + String(s_countsPerKpa, 1) + ",";
   json += "\"ageMs\":" + String(millis() - d.timestampMs);
   json += "}";

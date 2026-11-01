@@ -289,6 +289,13 @@ static void handlePressureScale() {
   server.send(200, "application/json", getPressureJson());
 }
 
+static void handlePressureKalman() {
+  if (server.hasArg("q") && server.hasArg("r")) {
+    setKalmanParameters(server.arg("q").toFloat(), server.arg("r").toFloat());
+  }
+  server.send(200, "application/json", getPressureJson());
+}
+
 void initWebServer() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/relay", HTTP_GET, handleRelay);
@@ -300,6 +307,7 @@ void initWebServer() {
   server.on("/pressure", HTTP_GET, handlePressure);
   server.on("/pressure/tare", HTTP_GET, handlePressureTare);
   server.on("/pressure/scale", HTTP_GET, handlePressureScale);
+  server.on("/pressure/kalman", HTTP_GET, handlePressureKalman);
 
   // Reprocessor Sequential State Machine endpoints
   server.on("/reprocessor/start", HTTP_GET, handleReprocessorStart);

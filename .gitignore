@@ -1,0 +1,17 @@
+# Arduino / ESP32 build artifacts
+build/
+.cache/
+*.bin
+*.elf
+*.hex
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS generated files
+Thumbs.db

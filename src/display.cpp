@@ -1,6 +1,7 @@
 #include "display.h"
 #include "relays.h"
 #include "reprocessor.h"
+#include "pressure_sensor.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
@@ -147,7 +148,7 @@ void updateDisplay() {
     }
     printLine(1, line);
 
-    // Line 2: Action or Relays
+    // Line 2: Action or Live Air Pressure Sensor
     bool showRecentAction = (lastActionChannel >= -1) && (millis() - lastActionTime < 3500);
     if (showRecentAction) {
       if (lastActionChannel == -1) {
@@ -159,7 +160,13 @@ void updateDisplay() {
                  lastActionState ? "ON" : "OFF");
       }
     } else {
-      printLine(2, "Status: Ready (Idle)");
+      PressureData p;
+      getPressureData(&p);
+      if (p.isConnected) {
+        snprintf(line, sizeof(line), "Air P: %5.1f mmHg", p.pressureMmhg);
+      } else {
+        snprintf(line, sizeof(line), "Air P: Connecting...");
+      }
     }
     printLine(2, line);
 

@@ -1,5 +1,6 @@
 #include "web_server.h"
 #include "reprocessor.h"
+#include "pressure_sensor.h"
 #include <WebSocketsServer.h>
 
 static WebServer server(WEB_SERVER_PORT);
@@ -73,8 +74,17 @@ static void handleWebSocketMessage(uint8_t num, const String& msg) {
   } else if (msg.startsWith("STATUS")) {
     String stRelays = getStatusJson();
     String stRep = getReprocessorStatusJson();
+    String stPress = getPressureJson();
     wsServer.sendTXT(num, stRelays);
     wsServer.sendTXT(num, stRep);
+    wsServer.sendTXT(num, stPress);
+  } else if (msg == "TARE" || msg == "CMD:TARE") {
+    tarePressureSensor(8);
+    String stPress = getPressureJson();
+    wsServer.sendTXT(num, stPress);
+  } else if (msg == "PRESSURE") {
+    String stPress = getPressureJson();
+    wsServer.sendTXT(num, stPress);
   }
   // 3. JSON Fallbacks
   else if (msg.indexOf("\"set\"") != -1) {
@@ -116,8 +126,10 @@ static void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size
       Serial.printf("[WS] Client [%u] Connected from %s\n", num, ip.toString().c_str());
       String stRelays = getStatusJson();
       String stRep = getReprocessorStatusJson();
+      String stPress = getPressureJson();
       wsServer.sendTXT(num, stRelays);
       wsServer.sendTXT(num, stRep);
+      wsServer.sendTXT(num, stPress);
       break;
     }
 
@@ -261,12 +273,33 @@ static void handleReprocessorStatus() {
   server.send(200, "application/json", getReprocessorStatusJson());
 }
 
+static void handlePressure() {
+  server.send(200, "application/json", getPressureJson());
+}
+
+static void handlePressureTare() {
+  tarePressureSensor(8);
+  server.send(200, "application/json", getPressureJson());
+}
+
+static void handlePressureScale() {
+  if (server.hasArg("val")) {
+    setPressureScale(server.arg("val").toFloat());
+  }
+  server.send(200, "application/json", getPressureJson());
+}
+
 void initWebServer() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/relay", HTTP_GET, handleRelay);
   server.on("/all", HTTP_GET, handleAll);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/info", HTTP_GET, handleInfo);
+
+  // HX710B Air Pressure Sensor endpoints
+  server.on("/pressure", HTTP_GET, handlePressure);
+  server.on("/pressure/tare", HTTP_GET, handlePressureTare);
+  server.on("/pressure/scale", HTTP_GET, handlePressureScale);
 
   // Reprocessor Sequential State Machine endpoints
   server.on("/reprocessor/start", HTTP_GET, handleReprocessorStart);
@@ -301,5 +334,13 @@ void handleWebServerClient() {
     s_needReprocessorBroadcast = false;
     String repJson = getReprocessorStatusJson();
     wsServer.broadcastTXT(repJson);
+  }
+
+  // Periodic pressure broadcast (every 500ms) to connected WebSocket clients
+  static unsigned long s_lastPressureBroadcast = 0;
+  if (millis() - s_lastPressureBroadcast >= 500) {
+    s_lastPressureBroadcast = millis();
+    String pJson = getPressureJson();
+    wsServer.broadcastTXT(pJson);
   }
 }

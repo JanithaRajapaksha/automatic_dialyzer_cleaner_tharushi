@@ -14,6 +14,7 @@
 #include "config.h"
 #include "relays.h"
 #include "reprocessor.h"
+#include "pressure_sensor.h"
 #include "web_server.h"
 #include "display.h"
 
@@ -66,27 +67,37 @@ void webServerTask(void* pvParameters) {
 }
 
 // ----------------------------------------------------------------------------
-// FreeRTOS Task: System Monitor & Watchdog
-// Runs on Core 1: monitors WiFi status, memory health, and handles auto-reconnect
+// FreeRTOS Task: System Monitor & Sensor Sampler
+// Runs on Core 1: samples HX710B @ 10Hz, monitors WiFi, and logs diagnostics
 // ----------------------------------------------------------------------------
 void systemMonitorTask(void* pvParameters) {
-  Serial.println("[FreeRTOS] System Monitor Task started on Core " + String(xPortGetCoreID()));
+  Serial.println("[FreeRTOS] System Monitor & Sensor Task started on Core " + String(xPortGetCoreID()));
 
+  uint32_t loopCount = 0;
   for (;;) {
-    // Check Wi-Fi connectivity and attempt reconnection if dropped
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("[Monitor] Wi-Fi lost. Attempting reconnection...");
-      WiFi.reconnect();
+    // 1. Sample HX710B air pressure sensor @ 10 Hz
+    updatePressureSensor();
+
+    // 2. Diagnostics & WiFi Watchdog (runs every 10 seconds: 100 * 100ms)
+    if (++loopCount >= 100) {
+      loopCount = 0;
+      if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[Monitor] Wi-Fi lost. Attempting reconnection...");
+        WiFi.reconnect();
+      }
+
+      PressureData p;
+      getPressureData(&p);
+      Serial.printf("[Monitor] %s | Heap: %lu B | RSSI: %d dBm | Pressure: %.1f mmHg (%.2f kPa, raw: %ld)\n",
+                    SYSTEM_NAME,
+                    ESP.getFreeHeap(),
+                    WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
+                    p.pressureMmhg,
+                    p.pressureKPa,
+                    p.rawValue);
     }
 
-    // Diagnostic logging
-    Serial.printf("[Monitor] System: %s | Free Heap: %lu bytes | WiFi RSSI: %d dBm\n",
-                  SYSTEM_NAME,
-                  ESP.getFreeHeap(),
-                  WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
-
-    // Sleep for 10 seconds before next check
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 
@@ -97,6 +108,7 @@ void setup() {
   // 1. Initialize relay hardware FIRST so all channels are safely OFF immediately
   initRelays();
   initReprocessor();
+  initPressureSensor();
 
   Serial.begin(115200);
   delay(500);

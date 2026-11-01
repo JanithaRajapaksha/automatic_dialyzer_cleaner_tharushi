@@ -383,6 +383,35 @@ const char webpage[] PROGMEM = R"rawliteral(
     <button class="btn-stage" style="background:#fef2f2;border-color:#fca5a5;color:#dc2626;" onclick="cmdAbort()">Abort Cycle</button>
   </div>
 
+  <!-- HX710B Air Pressure Sensor Card -->
+  <div class="fsm-panel" style="margin-bottom:18px;border-left:5px solid #0284c7;">
+    <div class="fsm-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="fsm-title">&#9881; Pneumatic Air Pressure (HX710B)</span>
+        <span style="font-size:0.75rem;color:#64748b;font-weight:600;">(GPIO 32 DOUT, GPIO 14 SCLK)</span>
+      </div>
+      <span class="badge badge-connected" id="sensor-badge">ONLINE</span>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:6px;flex-wrap:wrap;gap:12px;">
+      <div>
+        <div style="font-size:2.4rem;font-weight:800;color:#0369a1;line-height:1;letter-spacing:-1px;">
+          <span id="p-mmhg">0.0</span> <span style="font-size:1.1rem;color:#64748b;font-weight:600;">mmHg</span>
+        </div>
+        <div style="font-size:0.95rem;color:#334155;font-weight:600;margin-top:6px;">
+          <span id="p-kpa">0.00</span> kPa &nbsp;|&nbsp; <span id="p-psi">0.00</span> psi
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:0.8rem;color:#64748b;font-weight:600;">Raw: <span id="p-raw">0</span> counts</div>
+        <div style="font-size:0.8rem;color:#64748b;font-weight:600;">Tare: <span id="p-tare">0</span> &nbsp;(&Delta;: <span id="p-delta">0</span>)</div>
+        <button class="btn-sync" style="margin-top:6px;background:#f0f9ff;border-color:#38bdf8;color:#0369a1;" onclick="cmdTarePressure()">
+          Tare Baseline (0 mmHg)
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Actuator Grid -->
   <div class="section-title">Actuator Hardware Control (R1 – R10)</div>
   <div class="actuator-grid" id="actuator-cards"></div>
@@ -538,6 +567,34 @@ function renderReprocessorTelemetry(rep) {
   ribbon.textContent = `Active Actuators: ${rep.actuators || 'None (All OFF)'}`;
 }
 
+function renderPressureTelemetry(data) {
+  if (!data) return;
+  const badge = document.getElementById('sensor-badge');
+  const pMmhg = document.getElementById('p-mmhg');
+  const pKpa = document.getElementById('p-kpa');
+  const pPsi = document.getElementById('p-psi');
+  const pRaw = document.getElementById('p-raw');
+  const pTare = document.getElementById('p-tare');
+  const pDelta = document.getElementById('p-delta');
+
+  if (badge) {
+    if (data.connected) {
+      badge.className = 'badge badge-connected';
+      badge.textContent = 'ONLINE';
+    } else {
+      badge.className = 'badge badge-disconnected';
+      badge.textContent = 'DISCONNECTED';
+    }
+  }
+
+  if (pMmhg) pMmhg.textContent = (typeof data.mmhg === 'number') ? data.mmhg.toFixed(1) : data.mmhg;
+  if (pKpa) pKpa.textContent = (typeof data.kpa === 'number') ? data.kpa.toFixed(2) : data.kpa;
+  if (pPsi) pPsi.textContent = (typeof data.psi === 'number') ? data.psi.toFixed(2) : data.psi;
+  if (pRaw) pRaw.textContent = data.raw;
+  if (pTare) pTare.textContent = data.tare;
+  if (pDelta) pDelta.textContent = data.delta;
+}
+
 // WebSocket Connection Management
 let ws = null;
 let wsReconnectTimer = null;
@@ -578,6 +635,8 @@ function connectWebSocket() {
 
       if (data.type === 'reprocessor') {
         renderReprocessorTelemetry(data);
+      } else if (data.type === 'pressure') {
+        renderPressureTelemetry(data);
       } else {
         const arr = extractStates(data);
         if (arr) {
@@ -650,6 +709,10 @@ function cmdEStop() {
   }
 }
 
+function cmdTarePressure() {
+  sendWsOrHttp('TARE', '/pressure/tare');
+}
+
 // Manual Actuator Toggle
 function toggleRelay(i) {
   const targetState = !states[i];
@@ -705,6 +768,11 @@ async function forceSync() {
     if (resRep.ok) {
       const data = await resRep.json();
       renderReprocessorTelemetry(data);
+    }
+    const resPress = await fetch('/pressure');
+    if (resPress.ok) {
+      const data = await resPress.json();
+      renderPressureTelemetry(data);
     }
   } catch (e) {}
 }

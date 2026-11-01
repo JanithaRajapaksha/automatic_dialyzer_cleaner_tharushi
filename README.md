@@ -60,6 +60,21 @@ The controller drives 10 independent SPDT/SPST relays assigned to the fluidic an
 
 ---
 
+## 🌬️ HX710B Air Pressure Sensor Mapping
+
+The pneumatic leak test and chamber pressure are monitored via a 24-bit differential ADC pressure sensor (HX710B / MPS20N0040D-D, 0–40 kPa):
+
+| Signal | ESP32 GPIO | Description | Direction |
+| :---: | :---: | :--- | :---: |
+| **DOUT** | 32 | Serial Data Output (goes LOW when 24-bit data is ready) | Input |
+| **SCLK** | 14 | Serial Clock Input (24 bits + 1 channel select pulse) | Output |
+
+- **Sample Rate**: 10 Hz / 40 Hz
+- **Units Provided**: mmHg, kPa, psi, and raw 24-bit ADC counts
+- **Auto-Tare**: Establishes zero-offset reference at atmospheric pressure on boot or on-demand (`/pressure/tare` or WebSocket `TARE`).
+
+---
+
 ## 🔄 Global State Matrix & Sequential Stages
 
 All relays default to 0 (OFF / De-energized) when entering `STATE_IDLE` or during an emergency shutdown.
@@ -134,6 +149,9 @@ The firmware auto-probes the PCF8574 I2C expander at addresses `0x27` and `0x3F`
 | `GET /reprocessor/abort` | HTTP | Aborts active cycle and returns relays to safe OFF. |
 | `GET /reprocessor/estop` | HTTP | Immediate hardware emergency stop. |
 | `GET /reprocessor/status` | HTTP | Returns full FSM telemetry JSON. |
+| `GET /pressure` | HTTP | Returns live HX710B sensor reading (raw counts, tare, mmHg, kPa, psi). |
+| `GET /pressure/tare` | HTTP | Samples atmospheric zero baseline and resets gauge reading to 0. |
+| `GET /pressure/scale?val=<float>` | HTTP | Sets custom calibration factor (counts per kPa). |
 
 ### WebSocket Commands (Port 81)
 
@@ -142,6 +160,8 @@ The firmware auto-probes the PCF8574 I2C expander at addresses `0x27` and `0x3F`
 - `PAUSE` / `RESUME` — Pauses or resumes running cycle.
 - `ABORT` / `STOP` — Aborts cycle and resets to idle.
 - `ESTOP` — Triggers immediate hardware emergency stop.
+- `TARE` — Tares the HX710B air pressure sensor to 0 mmHg baseline.
+- `PRESSURE` — Requests immediate pressure reading frame.
 - `SET:<ch>:<0|1>` — Fast compact relay toggle (e.g. `SET:0:1` turns on Pump 1).
 - `ALL:<0|1>` — Fast bulk relay toggle (e.g. `ALL:0` turns off all relays).
 - `STATUS` — Requests immediate relay bitmask and reprocessor telemetry push.

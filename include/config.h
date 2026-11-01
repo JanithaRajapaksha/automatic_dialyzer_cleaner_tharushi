@@ -38,6 +38,12 @@ extern const char* WIFI_PASSWORD;
 #define RELAY_VALVE6   8  // R9: Solenoid Valve 6 (S6) - Exhaust / Bleed / Drain Valve
 #define RELAY_AIRPUMP  9  // R10: Air Pump - Pneumatic Pressure Generation Source
 
+// ==========================================
+// HX710B Air Pressure Sensor Configuration
+// ==========================================
+#define HX710_DOUT_PIN 32  // Data Out pin
+#define HX710_SCLK_PIN 14  // Serial Clock pin
+
 // GPIO pins assigned to relays
 extern const int RELAY_PINS[NUM_RELAYS];
 

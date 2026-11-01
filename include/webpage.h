@@ -310,6 +310,21 @@ const char webpage[] PROGMEM = R"rawliteral(
   .btn-bulk-on { background: #0d9488; }
   .btn-bulk-off { background: #64748b; }
 
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #10b981;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: pulse-dot 1.5s infinite;
+  }
+  @keyframes pulse-dot {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
   @media (max-width: 600px) {
     .stage-grid { grid-template-columns: repeat(2, 1fr); }
     .actuator-grid { grid-template-columns: 1fr; }
@@ -383,32 +398,67 @@ const char webpage[] PROGMEM = R"rawliteral(
     <button class="btn-stage" style="background:#fef2f2;border-color:#fca5a5;color:#dc2626;" onclick="cmdAbort()">Abort Cycle</button>
   </div>
 
-  <!-- HX710B Air Pressure Sensor Card -->
+  <!-- HX710B Air Pressure Sensor Card with Real-Time Waveform -->
   <div class="fsm-panel" style="margin-bottom:18px;border-left:5px solid #0284c7;">
     <div class="fsm-header">
       <div style="display:flex;align-items:center;gap:8px;">
         <span class="fsm-title">&#9881; Pneumatic Air Pressure (HX710B)</span>
         <span style="font-size:0.75rem;color:#64748b;font-weight:600;">(GPIO 32 DOUT, GPIO 14 SCLK)</span>
       </div>
-      <span class="badge badge-connected" id="sensor-badge">ONLINE</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="live-dot" id="p-live-dot" title="Live 10Hz Stream"></span>
+        <span class="badge badge-connected" id="sensor-badge">ONLINE</span>
+      </div>
     </div>
 
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:6px;flex-wrap:wrap;gap:12px;">
       <div>
-        <div style="font-size:2.4rem;font-weight:800;color:#0369a1;line-height:1;letter-spacing:-1px;">
+        <div style="font-size:2.5rem;font-weight:800;color:#0369a1;line-height:1;letter-spacing:-1px;">
           <span id="p-mmhg">0.0</span> <span style="font-size:1.1rem;color:#64748b;font-weight:600;">mmHg</span>
         </div>
         <div style="font-size:0.95rem;color:#334155;font-weight:600;margin-top:6px;">
           <span id="p-kpa">0.00</span> kPa &nbsp;|&nbsp; <span id="p-psi">0.00</span> psi
         </div>
       </div>
+
+      <!-- Live Statistical Badges -->
+      <div style="display:flex;gap:12px;background:#f8fafc;padding:8px 12px;border-radius:8px;border:1px solid #e2e8f0;font-size:0.78rem;">
+        <div><span style="color:#64748b;">Min:</span> <strong id="p-min" style="color:#0f172a;">--</strong> mmHg</div>
+        <div><span style="color:#64748b;">Max:</span> <strong id="p-max" style="color:#0f172a;">--</strong> mmHg</div>
+        <div><span style="color:#64748b;">&Delta;P/s:</span> <strong id="p-rate" style="color:#0284c7;">0.0</strong> mmHg/s</div>
+      </div>
+
       <div style="text-align:right;">
         <div style="font-size:0.8rem;color:#64748b;font-weight:600;">Raw: <span id="p-raw">0</span> counts</div>
         <div style="font-size:0.8rem;color:#64748b;font-weight:600;">Tare: <span id="p-tare">0</span> &nbsp;(&Delta;: <span id="p-delta">0</span>)</div>
-        <button class="btn-sync" style="margin-top:6px;background:#f0f9ff;border-color:#38bdf8;color:#0369a1;" onclick="cmdTarePressure()">
-          Tare Baseline (0 mmHg)
-        </button>
+        <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;">
+          <button class="btn-sync" style="background:#f0f9ff;border-color:#38bdf8;color:#0369a1;" onclick="cmdTarePressure()">
+            Tare (0 mmHg)
+          </button>
+          <button class="btn-sync" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;" onclick="clearPressureChart()">
+            Clear Graph
+          </button>
+        </div>
       </div>
+    </div>
+
+    <!-- Live Real-Time Oscilloscope / Strip-Chart Canvas -->
+    <div style="margin-top:14px;background:#0f172a;border-radius:8px;padding:8px;position:relative;overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;padding:0 4px;font-size:0.72rem;color:#94a3b8;font-weight:600;">
+        <span>REAL-TIME PRESSURE WAVEFORM (mmHg)</span>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span>Window: 
+            <select id="chart-window-sel" onchange="changeChartWindow(this.value)" style="background:#1e293b;color:#38bdf8;border:1px solid #475569;border-radius:4px;font-size:0.7rem;padding:1px 4px;">
+              <option value="15">15 sec</option>
+              <option value="30" selected>30 sec</option>
+              <option value="60">60 sec</option>
+              <option value="120">2 min</option>
+            </select>
+          </span>
+          <span style="color:#34d399;">10 Hz LIVE</span>
+        </div>
+      </div>
+      <canvas id="pressureCanvas" style="width:100%;height:150px;display:block;border-radius:4px;"></canvas>
     </div>
   </div>
 
@@ -567,6 +617,152 @@ function renderReprocessorTelemetry(rep) {
   ribbon.textContent = `Active Actuators: ${rep.actuators || 'None (All OFF)'}`;
 }
 
+// Real-time Pressure Waveform Chart State
+let pressureHistory = [];
+let chartWindowSec = 30;
+let minSeenPressure = null;
+let maxSeenPressure = null;
+
+function clearPressureChart() {
+  pressureHistory = [];
+  minSeenPressure = null;
+  maxSeenPressure = null;
+  const minEl = document.getElementById('p-min');
+  const maxEl = document.getElementById('p-max');
+  const rateEl = document.getElementById('p-rate');
+  if (minEl) minEl.textContent = '--';
+  if (maxEl) maxEl.textContent = '--';
+  if (rateEl) { rateEl.textContent = '0.0'; rateEl.style.color = '#0284c7'; }
+  drawPressureChart();
+}
+
+function changeChartWindow(sec) {
+  chartWindowSec = parseInt(sec, 10) || 30;
+  drawPressureChart();
+}
+
+function drawPressureChart() {
+  const canvas = document.getElementById('pressureCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = rect.width || 600;
+  const height = rect.height || 150;
+
+  if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+  }
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  // Background
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, width, height);
+
+  const now = Date.now();
+  const cutoff = now - (chartWindowSec * 1000);
+  while (pressureHistory.length > 0 && pressureHistory[0].t < cutoff) {
+    pressureHistory.shift();
+  }
+
+  // Determine dynamic Y bounds
+  let yMin = 0;
+  let yMax = 30;
+  if (pressureHistory.length > 0) {
+    let curMin = pressureHistory[0].val;
+    let curMax = pressureHistory[0].val;
+    for (let i = 1; i < pressureHistory.length; i++) {
+      const v = pressureHistory[i].val;
+      if (v < curMin) curMin = v;
+      if (v > curMax) curMax = v;
+    }
+    yMin = Math.min(0, Math.floor(curMin - 3));
+    yMax = Math.max(15, Math.ceil(curMax + 5));
+  }
+  if (yMax - yMin < 10) yMax = yMin + 10;
+
+  const plotLeft = 36;
+  const plotRight = width - 8;
+  const plotTop = 10;
+  const plotBottom = height - 16;
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+
+  // Grid Lines & Labels
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#64748b';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+
+  const numGridLines = 4;
+  for (let i = 0; i <= numGridLines; i++) {
+    const yVal = yMin + (yMax - yMin) * (i / numGridLines);
+    const yPx = plotBottom - (i / numGridLines) * plotHeight;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, yPx);
+    ctx.lineTo(plotRight, yPx);
+    ctx.stroke();
+    ctx.fillText(yVal.toFixed(0), plotLeft - 4, yPx + 3);
+  }
+
+  // Plot Data
+  if (pressureHistory.length >= 2) {
+    ctx.beginPath();
+    let firstX = plotLeft;
+    let lastX = plotRight;
+
+    for (let i = 0; i < pressureHistory.length; i++) {
+      const pt = pressureHistory[i];
+      const ageMs = now - pt.t;
+      const x = plotRight - (ageMs / (chartWindowSec * 1000)) * plotWidth;
+      const normY = Math.max(0, Math.min(1, (pt.val - yMin) / (yMax - yMin)));
+      const y = plotBottom - (normY * plotHeight);
+
+      if (i === 0) {
+        firstX = x;
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+      if (i === pressureHistory.length - 1) {
+        lastX = x;
+      }
+    }
+
+    // Trace line stroke
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Area fill under curve
+    ctx.lineTo(lastX, plotBottom);
+    ctx.lineTo(firstX, plotBottom);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, plotTop, 0, plotBottom);
+    grad.addColorStop(0, 'rgba(56, 189, 248, 0.28)');
+    grad.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Latest glowing data point
+    const newestPt = pressureHistory[pressureHistory.length - 1];
+    const newestNormY = Math.max(0, Math.min(1, (newestPt.val - yMin) / (yMax - yMin)));
+    const newestY = plotBottom - (newestNormY * plotHeight);
+    ctx.beginPath();
+    ctx.arc(lastX, newestY, 4, 0, 2 * Math.PI);
+    ctx.fillStyle = '#34d399';
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
 function renderPressureTelemetry(data) {
   if (!data) return;
   const badge = document.getElementById('sensor-badge');
@@ -587,12 +783,45 @@ function renderPressureTelemetry(data) {
     }
   }
 
-  if (pMmhg) pMmhg.textContent = (typeof data.mmhg === 'number') ? data.mmhg.toFixed(1) : data.mmhg;
+  const val = (typeof data.mmhg === 'number') ? data.mmhg : parseFloat(data.mmhg) || 0;
+
+  if (pMmhg) pMmhg.textContent = val.toFixed(1);
   if (pKpa) pKpa.textContent = (typeof data.kpa === 'number') ? data.kpa.toFixed(2) : data.kpa;
   if (pPsi) pPsi.textContent = (typeof data.psi === 'number') ? data.psi.toFixed(2) : data.psi;
   if (pRaw) pRaw.textContent = data.raw;
   if (pTare) pTare.textContent = data.tare;
   if (pDelta) pDelta.textContent = data.delta;
+
+  // Track live history for waveform chart
+  const now = Date.now();
+  pressureHistory.push({ t: now, val: val });
+
+  // Update Min/Max tracking
+  if (minSeenPressure === null || val < minSeenPressure) minSeenPressure = val;
+  if (maxSeenPressure === null || val > maxSeenPressure) maxSeenPressure = val;
+
+  const minEl = document.getElementById('p-min');
+  const maxEl = document.getElementById('p-max');
+  const rateEl = document.getElementById('p-rate');
+  if (minEl && minSeenPressure !== null) minEl.textContent = minSeenPressure.toFixed(1);
+  if (maxEl && maxSeenPressure !== null) maxEl.textContent = maxSeenPressure.toFixed(1);
+
+  // Calculate Rate of Pressure Change (Delta P / Delta t over ~1 second window)
+  if (pressureHistory.length >= 4) {
+    const pastIdx = Math.max(0, pressureHistory.length - 10);
+    const pastPt = pressureHistory[pastIdx];
+    const dt = (now - pastPt.t) / 1000.0;
+    if (dt >= 0.25) {
+      const dP = (val - pastPt.val) / dt;
+      if (rateEl) {
+        rateEl.textContent = (dP >= 0 ? '+' : '') + dP.toFixed(1);
+        rateEl.style.color = dP < -1.5 ? '#f87171' : (dP > 1.5 ? '#38bdf8' : '#0284c7');
+      }
+    }
+  }
+
+  // Draw chart frame
+  drawPressureChart();
 }
 
 // WebSocket Connection Management
@@ -778,6 +1007,8 @@ async function forceSync() {
 }
 
 // Startup
+window.addEventListener('resize', drawPressureChart);
+drawPressureChart();
 forceSync();
 connectWebSocket();
 setInterval(forceSync, 4000);

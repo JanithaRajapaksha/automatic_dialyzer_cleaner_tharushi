@@ -68,18 +68,18 @@ void webServerTask(void* pvParameters) {
 
 // ----------------------------------------------------------------------------
 // FreeRTOS Task: System Monitor & Sensor Sampler
-// Runs on Core 1: samples HX710B @ 10Hz, monitors WiFi, and logs diagnostics
+// Runs on Core 1: samples HX710B with 20ms non-blocking checks, monitors WiFi, and logs diagnostics
 // ----------------------------------------------------------------------------
 void systemMonitorTask(void* pvParameters) {
   Serial.println("[FreeRTOS] System Monitor & Sensor Task started on Core " + String(xPortGetCoreID()));
 
   uint32_t loopCount = 0;
   for (;;) {
-    // 1. Sample HX710B air pressure sensor @ 10 Hz
+    // 1. Sample HX710B air pressure sensor (non-blocking: reads immediately when DOUT goes LOW)
     updatePressureSensor();
 
-    // 2. Diagnostics & WiFi Watchdog (runs every 10 seconds: 100 * 100ms)
-    if (++loopCount >= 100) {
+    // 2. Diagnostics & WiFi Watchdog (runs every 10 seconds: 500 * 20ms)
+    if (++loopCount >= 500) {
       loopCount = 0;
       if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[Monitor] Wi-Fi lost. Attempting reconnection...");
@@ -97,7 +97,7 @@ void systemMonitorTask(void* pvParameters) {
                     p.rawValue);
     }
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 

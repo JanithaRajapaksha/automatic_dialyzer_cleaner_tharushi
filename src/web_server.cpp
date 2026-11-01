@@ -336,9 +336,9 @@ void handleWebServerClient() {
     wsServer.broadcastTXT(repJson);
   }
 
-  // Periodic pressure broadcast (every 600ms) only when clients are connected
+  // Periodic pressure broadcast (every 100ms = 10 Hz real-time stream) only when clients are connected
   static unsigned long s_lastPressureBroadcast = 0;
-  if (millis() - s_lastPressureBroadcast >= 600) {
+  if (millis() - s_lastPressureBroadcast >= 100) {
     s_lastPressureBroadcast = millis();
     if (wsServer.connectedClients() > 0) {
       String pJson = getPressureJson();

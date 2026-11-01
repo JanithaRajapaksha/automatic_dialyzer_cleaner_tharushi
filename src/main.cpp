@@ -87,16 +87,16 @@ void systemMonitorTask(void* pvParameters) {
 // Setup
 // ----------------------------------------------------------------------------
 void setup() {
+  // 1. Initialize relay hardware FIRST so all channels are safely OFF immediately
+  initRelays();
+
   Serial.begin(115200);
-  delay(1000);
+  delay(500);
 
   Serial.println("\n==================================================");
   Serial.printf(" %s v%s\n", SYSTEM_NAME, SYSTEM_VERSION);
   Serial.println("==================================================");
-
-  // 1. Initialize relays and FreeRTOS Mutex
-  Serial.println("[Init] Initializing 10 relay channels...");
-  initRelays();
+  Serial.println("[Init] Relay channels initialized to safe OFF state.");
 
   // 2. Connect to Wi-Fi network
   connectWiFi();

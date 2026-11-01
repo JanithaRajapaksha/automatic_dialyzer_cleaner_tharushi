@@ -12,11 +12,12 @@ void initRelays() {
     s_relayMutex = xSemaphoreCreateMutex();
   }
 
-  // Pre-initialize outputs to safe OFF level before setting as OUTPUT
-  // This prevents brief relay chatter/clicks during ESP32 startup
+  // Set each relay pin to OUTPUT and immediately apply the safe OFF state.
+  // In ESP32 Core 3.x, pinMode() must be called BEFORE digitalWrite()
+  // for the GPIO driver to register and output the desired level.
   for (int i = 0; i < NUM_RELAYS; i++) {
-    digitalWrite(RELAY_PINS[i], getRelayPinLevel(i, false));
     pinMode(RELAY_PINS[i], OUTPUT);
+    digitalWrite(RELAY_PINS[i], getRelayPinLevel(i, false));
     s_relayState[i] = false;
   }
 }
@@ -104,4 +105,3 @@ const char* getRelayName(int ch) {
   }
   return RELAY_NAMES[ch];
 }
-

@@ -13,6 +13,7 @@
 
 #include "config.h"
 #include "relays.h"
+#include "reprocessor.h"
 #include "web_server.h"
 #include "display.h"
 
@@ -20,6 +21,7 @@
 TaskHandle_t webServerTaskHandle = NULL;
 TaskHandle_t systemMonitorTaskHandle = NULL;
 TaskHandle_t displayTaskHandle = NULL;
+TaskHandle_t reprocessorTaskHandle = NULL;
 
 // ----------------------------------------------------------------------------
 // Connect to Wi-Fi
@@ -94,6 +96,7 @@ void systemMonitorTask(void* pvParameters) {
 void setup() {
   // 1. Initialize relay hardware FIRST so all channels are safely OFF immediately
   initRelays();
+  initReprocessor();
 
   Serial.begin(115200);
   delay(500);
@@ -164,6 +167,17 @@ void setup() {
     DISPLAY_TASK_PRIORITY,
     &displayTaskHandle,
     DISPLAY_TASK_CORE
+  );
+
+  // Reprocessor FSM Task pinned to Core 1 (Application Core)
+  xTaskCreatePinnedToCore(
+    reprocessorTask,
+    "ReprocessorTask",
+    REPROCESSOR_TASK_STACK_SIZE,
+    NULL,
+    REPROCESSOR_TASK_PRIORITY,
+    &reprocessorTaskHandle,
+    REPROCESSOR_TASK_CORE
   );
 
   Serial.println("[Init] Initialization complete. System ready.");

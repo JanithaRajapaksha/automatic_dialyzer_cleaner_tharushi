@@ -65,6 +65,15 @@ void setAllRelays(bool state) {
   }
 }
 
+void emergencyStopRelays() {
+  // Direct immediate write to all physical pins to abort all actuators (< 1 microsecond)
+  for (int i = 0; i < NUM_RELAYS; i++) {
+    digitalWrite(RELAY_PINS[i], getRelayPinLevel(i, false));
+    s_relayState[i] = false;
+  }
+  displayNotifyRelayChange(-1, false);
+}
+
 bool getRelayState(int ch) {
   if (ch < 0 || ch >= NUM_RELAYS) {
     return false;

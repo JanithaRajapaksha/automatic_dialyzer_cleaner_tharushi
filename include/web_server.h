@@ -15,5 +15,8 @@ void handleWebServerClient();
 // Broadcast current relay status to all connected WebSocket clients
 void broadcastRelayStatus();
 
+// Broadcast current reprocessor FSM status to all connected WebSocket clients
+void broadcastReprocessorStatus();
+
 #endif // WEB_SERVER_H
 

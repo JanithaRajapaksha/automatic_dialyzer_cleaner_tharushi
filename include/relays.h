@@ -15,6 +15,9 @@ bool setRelay(int ch, bool state);
 // Thread-safe update of all relays
 void setAllRelays(bool state);
 
+// Immediate hardware emergency shutdown: sets all 10 relays to OFF immediately
+void emergencyStopRelays();
+
 // Thread-safe read of a single relay state
 bool getRelayState(int ch);
 

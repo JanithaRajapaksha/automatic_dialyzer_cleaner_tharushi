@@ -1,5 +1,6 @@
 #include "display.h"
 #include "relays.h"
+#include "reprocessor.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
@@ -60,7 +61,7 @@ void displayBootScreen() {
 
   if (xSemaphoreTake(lcdMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
     printLine(0, "====================");
-    printLine(1, "  DIALYZER CLEANER  ");
+    printLine(1, "DIALYZER REPROCESSOR");
     printLine(2, "    v" SYSTEM_VERSION "         ");
     printLine(3, "Connecting WiFi...  ");
     xSemaphoreGive(lcdMutex);
@@ -81,69 +82,96 @@ void updateDisplay() {
   }
 
   char line[40];
+  ReprocessorStatus rep;
+  getReprocessorStatus(&rep);
 
   // ----------------------------------------------------
-  // Line 0: Header & Link Status
+  // Scenario A: Reprocessor Cycle Active
   // ----------------------------------------------------
-  bool isConnected = (WiFi.status() == WL_CONNECTED);
-  if (isConnected) {
-    printLine(0, "DIALYZER CLN  [LIVE]");
-  } else {
-    printLine(0, "DIALYZER CLN  [WAIT]");
-  }
-
-  // ----------------------------------------------------
-  // Line 1: Wi-Fi / IP Address
-  // ----------------------------------------------------
-  if (isConnected) {
-    snprintf(line, sizeof(line), "IP: %s", WiFi.localIP().toString().c_str());
-  } else {
-    snprintf(line, sizeof(line), "WiFi: %s", WIFI_SSID);
-  }
-  printLine(1, line);
-
-  // ----------------------------------------------------
-  // Line 2: Active Relays or Recent Action Banner
-  // ----------------------------------------------------
-  bool showRecentAction = (lastActionChannel >= -1) && (millis() - lastActionTime < 3500);
-
-  if (showRecentAction) {
-    if (lastActionChannel == -1) {
-      snprintf(line, sizeof(line), "ALL: %s", lastActionState ? "ACTIVATED (ON)" : "STOPPED (OFF)");
+  if (rep.isRunning || rep.isPaused || rep.isAborted) {
+    // Line 0: Header & Cycle Type
+    if (rep.isAborted) {
+      printLine(0, "REPROCESSOR  [ABORT]");
+    } else if (rep.isPaused) {
+      printLine(0, "REPROCESSOR  [PAUSE]");
+    } else if (rep.isAutoCycle) {
+      snprintf(line, sizeof(line), "REPROCESSOR   AUTO%2d%%", rep.progressPercent);
+      printLine(0, line);
     } else {
-      const char* name = getRelayName(lastActionChannel);
-      snprintf(line, sizeof(line), "CH%d %s: %s",
-               lastActionChannel + 1,
-               lastActionState ? "ON" : "OFF",
-               name ? name : "");
-    }
-  } else {
-    bool states[NUM_RELAYS];
-    getAllRelayStates(states, NUM_RELAYS);
-    int activeCount = 0;
-    for (int i = 0; i < NUM_RELAYS; i++) {
-      if (states[i]) activeCount++;
+      snprintf(line, sizeof(line), "STAGE %d RUNNING", rep.stageNumber);
+      printLine(0, line);
     }
 
-    if (activeCount == 0) {
-      snprintf(line, sizeof(line), "Active: 0/10  [IDLE]");
+    // Line 1: Short Stage Name
+    switch (rep.stage) {
+      case STAGE_RO_WASH_1:           printLine(1, "1/7 RO WASH (BOTH)  "); break;
+      case STAGE_H2O2_WASH:           printLine(1, "2/7 H2O2 FLUSH      "); break;
+      case STAGE_RO_WASH_2:           printLine(1, "3/7 RO RINSE 2      "); break;
+      case STAGE_PRESSURE_PRESSURIZE: printLine(1, "4A: AIR PRESSURIZE  "); break;
+      case STAGE_PRESSURE_HOLD:       printLine(1, "4B: LEAK TEST HOLD  "); break;
+      case STAGE_PRESSURE_VENT:       printLine(1, "4C: DEPRESSURIZE    "); break;
+      case STAGE_RO_FILL_BLOOD:       printLine(1, "5/7 BLOOD SIDE FILL "); break;
+      case STAGE_FBV_MEASURE:         printLine(1, "6/7 FBV MEASUREMENT "); break;
+      case STAGE_PAA_PRIME:           printLine(1, "7/7 PAA PRIME/STORE "); break;
+      case STAGE_COMPLETE:            printLine(1, "REPROCESS COMPLETE! "); break;
+      case STAGE_ABORTED:             printLine(1, "EMERGENCY STOPPED!  "); break;
+      default:                        printLine(1, "CYCLE STANDBY       "); break;
+    }
+
+    // Line 2: Sub-step & Elapsed/Total Countdown
+    if (rep.stageTotalSec > 0) {
+      snprintf(line, sizeof(line), "%-10.10s %2lus/%2lus",
+               rep.subStepName,
+               rep.stageElapsedSec,
+               rep.stageTotalSec);
     } else {
-      snprintf(line, sizeof(line), "Active: %d/10  [RUN]", activeCount);
+      snprintf(line, sizeof(line), "%-20.20s", rep.subStepName);
     }
+    printLine(2, line);
+
+    // Line 3: Active Actuators
+    snprintf(line, sizeof(line), "ACT: %-15.15s", rep.activeActuators);
+    printLine(3, line);
   }
-  printLine(2, line);
-
   // ----------------------------------------------------
-  // Line 3: System Uptime & RSSI
+  // Scenario B: System Idle
   // ----------------------------------------------------
-  unsigned long sec = millis() / 1000;
-  unsigned long hrs = sec / 3600;
-  unsigned long mins = (sec % 3600) / 60;
-  unsigned long secs = sec % 60;
+  else {
+    bool isConnected = (WiFi.status() == WL_CONNECTED);
+    if (isConnected) {
+      printLine(0, "DIALYZER REP  [LIVE]");
+      snprintf(line, sizeof(line), "IP: %s", WiFi.localIP().toString().c_str());
+    } else {
+      printLine(0, "DIALYZER REP  [WAIT]");
+      snprintf(line, sizeof(line), "WiFi: %s", WIFI_SSID);
+    }
+    printLine(1, line);
 
-  int rssi = isConnected ? WiFi.RSSI() : 0;
-  snprintf(line, sizeof(line), "Up:%02lu:%02lu:%02lu  %ddBm", hrs, mins, secs, rssi);
-  printLine(3, line);
+    // Line 2: Action or Relays
+    bool showRecentAction = (lastActionChannel >= -1) && (millis() - lastActionTime < 3500);
+    if (showRecentAction) {
+      if (lastActionChannel == -1) {
+        snprintf(line, sizeof(line), "ALL: %s", lastActionState ? "ACTIVE (ON)" : "SAFE (OFF)");
+      } else {
+        snprintf(line, sizeof(line), "%s (R%d): %s",
+                 ACTUATOR_CODES[lastActionChannel],
+                 lastActionChannel + 1,
+                 lastActionState ? "ON" : "OFF");
+      }
+    } else {
+      printLine(2, "Status: Ready (Idle)");
+    }
+    printLine(2, line);
+
+    // Line 3: Uptime & RSSI
+    unsigned long sec = millis() / 1000;
+    unsigned long hrs = sec / 3600;
+    unsigned long mins = (sec % 3600) / 60;
+    unsigned long secs = sec % 60;
+    int rssi = isConnected ? WiFi.RSSI() : 0;
+    snprintf(line, sizeof(line), "Up:%02lu:%02lu:%02lu  %ddBm", hrs, mins, secs, rssi);
+    printLine(3, line);
+  }
 
   xSemaphoreGive(lcdMutex);
 }

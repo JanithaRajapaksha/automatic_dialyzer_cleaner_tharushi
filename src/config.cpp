@@ -10,18 +10,23 @@ const int RELAY_PINS[NUM_RELAYS] = {
   19, 23, 25, 27, 26
 };
 
-// Functional descriptions for Automatic Dialyzer Cleaner channels
+// Functional descriptions for Automatic Dialyzer Reprocessor actuators
 const char* RELAY_NAMES[NUM_RELAYS] = {
-  "Water Inlet Valve",
-  "Disinfectant Valve",
-  "Blood Port Flush Valve",
-  "Dialysate Port Flush Valve",
-  "Reverse Flow Valve",
-  "Drain Release Valve",
-  "Main Booster Pump",
-  "Chemical Metering Pump",
-  "Air Purge / Vent Valve",
-  "Waste Discharge Valve"
+  "Pump 1: Primary RO Water Pump",
+  "Pump 2: Chemical / H2O2 Flush Pump",
+  "Pump 3: PAA / Renalin Sterilant Pump",
+  "Valve S1: RO / Fluid Input Control",
+  "Valve S2: Intermediate Port / Chemical Path",
+  "Valve S3: Recirculation Control",
+  "Valve S4: Dialyzer Blood / Dialyzate Side Port",
+  "Valve S5: Pressure Test Isolation Valve",
+  "Valve S6: Exhaust / Bleed / Drain Valve",
+  "Air Pump: Pneumatic Pressure Source"
+};
+
+// Short actuator identifiers
+const char* ACTUATOR_CODES[NUM_RELAYS] = {
+  "P1", "P2", "P3", "S1", "S2", "S3", "S4", "S5", "S6", "AIR"
 };
 
 // Active trigger levels:

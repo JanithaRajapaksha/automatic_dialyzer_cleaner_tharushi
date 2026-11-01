@@ -1,9 +1,11 @@
 #include "web_server.h"
+#include "reprocessor.h"
 #include <WebSocketsServer.h>
 
 static WebServer server(WEB_SERVER_PORT);
 static WebSocketsServer wsServer(WEBSOCKET_PORT);
 static volatile bool s_needBroadcast = false;
+static volatile bool s_needReprocessorBroadcast = false;
 
 static String getStatusJson() {
   bool states[NUM_RELAYS] = {false};
@@ -28,9 +30,30 @@ void broadcastRelayStatus() {
   wsServer.broadcastTXT(json);
 }
 
+void broadcastReprocessorStatus() {
+  s_needReprocessorBroadcast = true;
+  s_needBroadcast = true;
+}
+
 static void handleWebSocketMessage(uint8_t num, const String& msg) {
-  // 1. High-speed compact command: SET:<ch>:<state> (e.g., SET:0:1)
-  if (msg.startsWith("SET:")) {
+  // 1. Reprocessor Cycle Commands
+  if (msg == "START" || msg == "CMD:START" || msg == "AUTO") {
+    startAutoCycle();
+  } else if (msg == "PAUSE" || msg == "CMD:PAUSE") {
+    pauseCycle();
+  } else if (msg == "RESUME" || msg == "CMD:RESUME") {
+    resumeCycle();
+  } else if (msg == "ABORT" || msg == "CMD:ABORT" || msg == "STOP") {
+    abortCycle("WebSocket Request");
+  } else if (msg == "ESTOP" || msg == "CMD:ESTOP") {
+    emergencyStop();
+  } else if (msg.startsWith("STAGE:") || msg.startsWith("CMD:STAGE:")) {
+    int colonIdx = msg.lastIndexOf(':');
+    int stageId = msg.substring(colonIdx + 1).toInt();
+    startSingleStage(stageId);
+  }
+  // 2. High-speed compact manual command: SET:<ch>:<state> (e.g., SET:0:1)
+  else if (msg.startsWith("SET:")) {
     int firstColon = msg.indexOf(':');
     int secondColon = msg.indexOf(':', firstColon + 1);
     if (secondColon != -1) {
@@ -48,10 +71,12 @@ static void handleWebSocketMessage(uint8_t num, const String& msg) {
       s_needBroadcast = true;
     }
   } else if (msg.startsWith("STATUS")) {
-    String status = getStatusJson();
-    wsServer.sendTXT(num, status);
+    String stRelays = getStatusJson();
+    String stRep = getReprocessorStatusJson();
+    wsServer.sendTXT(num, stRelays);
+    wsServer.sendTXT(num, stRep);
   }
-  // 2. JSON Fallback: {"cmd":"set","ch":0,"state":1}
+  // 3. JSON Fallbacks
   else if (msg.indexOf("\"set\"") != -1) {
     int chIdx = msg.indexOf("\"ch\":");
     int stateIdx = msg.indexOf("\"state\":");
@@ -73,8 +98,10 @@ static void handleWebSocketMessage(uint8_t num, const String& msg) {
       }
     }
   } else if (msg.indexOf("\"status\"") != -1) {
-    String status = getStatusJson();
-    wsServer.sendTXT(num, status);
+    String stRelays = getStatusJson();
+    String stRep = getReprocessorStatusJson();
+    wsServer.sendTXT(num, stRelays);
+    wsServer.sendTXT(num, stRep);
   }
 }
 
@@ -87,8 +114,10 @@ static void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size
     case WStype_CONNECTED: {
       IPAddress ip = wsServer.remoteIP(num);
       Serial.printf("[WS] Client [%u] Connected from %s\n", num, ip.toString().c_str());
-      String status = getStatusJson();
-      wsServer.sendTXT(num, status);
+      String stRelays = getStatusJson();
+      String stRep = getReprocessorStatusJson();
+      wsServer.sendTXT(num, stRelays);
+      wsServer.sendTXT(num, stRep);
       break;
     }
 
@@ -189,12 +218,65 @@ static void handleNotFound() {
   server.send(404, "application/json", "{\"error\":\"Endpoint not found\"}");
 }
 
+static void handleReprocessorStart() {
+  startAutoCycle();
+  server.send(200, "application/json", getReprocessorStatusJson());
+}
+
+static void handleReprocessorStage() {
+  if (!server.hasArg("id")) {
+    server.send(400, "application/json", "{\"error\":\"Missing stage id\"}");
+    return;
+  }
+  int id = server.arg("id").toInt();
+  if (id < 1 || id > 7) {
+    server.send(400, "application/json", "{\"error\":\"Invalid stage id (1 to 7)\"}");
+    return;
+  }
+  startSingleStage(id);
+  server.send(200, "application/json", getReprocessorStatusJson());
+}
+
+static void handleReprocessorPause() {
+  pauseCycle();
+  server.send(200, "application/json", getReprocessorStatusJson());
+}
+
+static void handleReprocessorResume() {
+  resumeCycle();
+  server.send(200, "application/json", getReprocessorStatusJson());
+}
+
+static void handleReprocessorAbort() {
+  abortCycle("Web Interface Request");
+  server.send(200, "application/json", getReprocessorStatusJson());
+}
+
+static void handleReprocessorEstop() {
+  emergencyStop();
+  server.send(200, "application/json", "{\"estop\":true,\"message\":\"Emergency Stop Activated\"}");
+}
+
+static void handleReprocessorStatus() {
+  server.send(200, "application/json", getReprocessorStatusJson());
+}
+
 void initWebServer() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/relay", HTTP_GET, handleRelay);
   server.on("/all", HTTP_GET, handleAll);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/info", HTTP_GET, handleInfo);
+
+  // Reprocessor Sequential State Machine endpoints
+  server.on("/reprocessor/start", HTTP_GET, handleReprocessorStart);
+  server.on("/reprocessor/stage", HTTP_GET, handleReprocessorStage);
+  server.on("/reprocessor/pause", HTTP_GET, handleReprocessorPause);
+  server.on("/reprocessor/resume", HTTP_GET, handleReprocessorResume);
+  server.on("/reprocessor/abort", HTTP_GET, handleReprocessorAbort);
+  server.on("/reprocessor/estop", HTTP_GET, handleReprocessorEstop);
+  server.on("/reprocessor/status", HTTP_GET, handleReprocessorStatus);
+
   server.onNotFound(handleNotFound);
 
   server.begin();
@@ -213,5 +295,11 @@ void handleWebServerClient() {
   if (s_needBroadcast) {
     s_needBroadcast = false;
     broadcastRelayStatus();
+  }
+
+  if (s_needReprocessorBroadcast) {
+    s_needReprocessorBroadcast = false;
+    String repJson = getReprocessorStatusJson();
+    wsServer.broadcastTXT(repJson);
   }
 }

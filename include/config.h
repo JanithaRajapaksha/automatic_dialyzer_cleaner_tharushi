@@ -6,8 +6,8 @@
 // ==========================================
 // Project Information
 // ==========================================
-#define SYSTEM_NAME "Automatic Dialyzer Cleaner"
-#define SYSTEM_VERSION "1.0.0"
+#define SYSTEM_NAME "Automatic Dialyzer Reprocessor"
+#define SYSTEM_VERSION "1.1.0"
 
 // ==========================================
 // Wi-Fi Credentials
@@ -22,15 +22,30 @@ extern const char* WIFI_PASSWORD;
 #define WEBSOCKET_PORT 81
 
 // ==========================================
-// Relay Configuration (ESP32-WROOM-32)
+// Actuator to Relay Hardware Mapping
 // ==========================================
 #define NUM_RELAYS 10
+
+// Named Relay Index Definitions
+#define RELAY_PUMP1    0  // R1: Pump 1 - Primary RO Water Pump
+#define RELAY_PUMP2    1  // R2: Pump 2 - Chemical / H2O2 Flushing Pump
+#define RELAY_PUMP3    2  // R3: Pump 3 - PAA / Renalin Sterilant Pump
+#define RELAY_VALVE1   3  // R4: Solenoid Valve 1 (S1) - RO / Fluid Input Control
+#define RELAY_VALVE2   4  // R5: Solenoid Valve 2 (S2) - Intermediate Port / Chemical Path
+#define RELAY_VALVE3   5  // R6: Solenoid Valve 3 (S3) - Intermediate / Recirculation Control
+#define RELAY_VALVE4   6  // R7: Solenoid Valve 4 (S4) - Dialyzer Blood / Dialyzate Side Port
+#define RELAY_VALVE5   7  // R8: Solenoid Valve 5 (S5) - Pressure Test Isolation Valve
+#define RELAY_VALVE6   8  // R9: Solenoid Valve 6 (S6) - Exhaust / Bleed / Drain Valve
+#define RELAY_AIRPUMP  9  // R10: Air Pump - Pneumatic Pressure Generation Source
 
 // GPIO pins assigned to relays
 extern const int RELAY_PINS[NUM_RELAYS];
 
-// Channel names for Automatic Dialyzer Cleaner
+// Channel names for Automatic Dialyzer Reprocessor
 extern const char* RELAY_NAMES[NUM_RELAYS];
+
+// Actuator short codes (P1, P2, P3, S1, S2, S3, S4, S5, S6, AIR)
+extern const char* ACTUATOR_CODES[NUM_RELAYS];
 
 // Relay logic levels (per-channel trigger polarity)
 // Relays 1 to 8 (indices 0 to 7): Active LOW (LOW = ON, HIGH = OFF)
@@ -69,6 +84,10 @@ inline uint8_t getRelayPinLevel(int ch, bool state) {
 #define DISPLAY_TASK_STACK_SIZE      4096
 #define DISPLAY_TASK_PRIORITY        1
 #define DISPLAY_TASK_CORE            1  // Run display updates on Core 1
+
+#define REPROCESSOR_TASK_STACK_SIZE  4096
+#define REPROCESSOR_TASK_PRIORITY    2  // High priority for precise timing
+#define REPROCESSOR_TASK_CORE        1  // Run reprocessor FSM on Core 1
 
 #endif // CONFIG_H
 
